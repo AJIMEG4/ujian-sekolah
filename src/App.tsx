@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { supabase } from "./lib/supabase";
 import { 
   User, 
@@ -28,7 +28,9 @@ import {
   Plus,
   Trash2,
   LayoutDashboard,
-  RefreshCcw
+  RefreshCcw,
+  X,
+  Edit2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -75,6 +77,7 @@ export default function App() {
 
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
+  const [isExamModalOpen, setIsExamModalOpen] = useState(false);
 
   // Fetch data from Supabase on mount
   useEffect(() => {
@@ -191,9 +194,9 @@ export default function App() {
       setMajors(prev => prev.map(m => m.id === editingMajor.id ? editingMajor : m));
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving to Supabase:', error);
-      alert('Gagal menyimpan ke database. Pastikan tabel sudah dibuat di Supabase.');
+      alert(`Gagal menyimpan ke database: ${error.message || 'Terjadi kesalahan tidak diketahui'}. Pastikan tabel 'majors' dan 'exams' sudah dibuat di Supabase.`);
     } finally {
       setIsLoading(false);
     }
@@ -246,22 +249,31 @@ export default function App() {
   const handleSaveSettings = async () => {
     setIsLoading(true);
     try {
+      // Menyiapkan data untuk disimpan
       const settingsToSave = [
         { key: 'title', value: examSettings.title },
         { key: 'status', value: examSettings.status },
         { key: 'schoolName', value: examSettings.schoolName }
       ];
 
+      console.log('Mencoba menyimpan pengaturan ke Supabase:', settingsToSave);
+
+      // Melakukan upsert ke tabel settings
       const { error } = await supabase
         .from('settings')
-        .upsert(settingsToSave);
+        .upsert(settingsToSave, { onConflict: 'key' });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase Upsert Error:', error);
+        throw error;
+      }
 
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 2000);
-    } catch (error) {
-      console.error('Error saving settings:', error);
+    } catch (error: any) {
+      console.error('Error detail:', error);
+      const errorMsg = error.message || error.details || 'Terjadi kesalahan koneksi';
+      alert(`Gagal Update Pengaturan!\n\nDetail Error: ${errorMsg}\n\nPastikan:\n1. Tabel 'settings' sudah ada.\n2. Kolom 'key' adalah Primary Key.\n3. RLS Policy sudah diatur ke 'Allow All'.`);
     } finally {
       setIsLoading(false);
     }
@@ -271,14 +283,35 @@ export default function App() {
     if (!editingMajor) return;
     const newExam: Exam = {
       id: `exam-${Date.now()}`,
-      subject: "Mata Pelajaran Baru",
-      link: "https://forms.google.com",
-      token: "TOKEN123",
+      subject: "",
+      link: "",
+      token: "",
       duration: "90"
     };
-    const updatedMajor = { ...editingMajor, exams: [...editingMajor.exams, newExam] };
-    setEditingMajor(updatedMajor);
     setEditingExam(newExam);
+    setIsExamModalOpen(true);
+  };
+
+  const handleEditExam = (exam: Exam) => {
+    setEditingExam({ ...exam });
+    setIsExamModalOpen(true);
+  };
+
+  const handleSaveExamModal = () => {
+    if (!editingMajor || !editingExam) return;
+    
+    const examExists = editingMajor.exams.find(e => e.id === editingExam.id);
+    let updatedExams;
+    
+    if (examExists) {
+      updatedExams = editingMajor.exams.map(e => e.id === editingExam.id ? editingExam : e);
+    } else {
+      updatedExams = [...editingMajor.exams, editingExam];
+    }
+    
+    setEditingMajor({ ...editingMajor, exams: updatedExams });
+    setIsExamModalOpen(false);
+    setEditingExam(null);
   };
 
   const handleDeleteExam = (examId: string) => {
@@ -472,103 +505,146 @@ export default function App() {
 
               {adminTab === "exams" && (
                 <div className="space-y-6">
-                  <h2 className="text-2xl font-bold text-gray-800">Manajemen Soal</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="md:col-span-1 space-y-4">
-                      <div>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase px-2 mb-2">Pilih Jurusan</p>
-                        <div className="space-y-1">
-                          {majors.map(m => (
-                            <Button 
-                              key={m.id}
-                              variant={editingMajor?.id === m.id ? "secondary" : "ghost"}
-                              onClick={() => {
-                                setEditingMajor(m);
-                                setEditingExam(null);
-                              }}
-                              className={`w-full justify-start text-sm ${editingMajor?.id === m.id ? "bg-blue-50 text-blue-700" : ""}`}
-                            >
-                              {m.name}
-                            </Button>
-                          ))}
-                        </div>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-2xl font-bold text-gray-800">Manajemen Soal</h2>
+                    {editingMajor && (
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={handleSaveMajor} disabled={isLoading}>
+                          {isLoading ? "Menyimpan..." : "Simpan Semua Perubahan"}
+                        </Button>
+                        <Button onClick={handleAddExam} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                          <Plus className="w-4 h-4" /> Tambah Mata Ujian
+                        </Button>
                       </div>
+                    )}
+                  </div>
 
-                      {editingMajor && (
-                        <div>
-                          <div className="flex items-center justify-between px-2 mb-2">
-                            <p className="text-[10px] font-bold text-gray-400 uppercase">Mata Ujian</p>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 text-blue-600" onClick={handleAddExam}>
-                              <Plus className="w-4 h-4" />
-                            </Button>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div className="md:col-span-1 space-y-2">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase px-2">Pilih Jurusan</p>
+                      <div className="space-y-1">
+                        {majors.map(m => (
+                          <Button 
+                            key={m.id}
+                            variant={editingMajor?.id === m.id ? "secondary" : "ghost"}
+                            onClick={() => {
+                              setEditingMajor(m);
+                              setEditingExam(null);
+                            }}
+                            className={`w-full justify-start text-sm ${editingMajor?.id === m.id ? "bg-blue-50 text-blue-700 font-bold" : ""}`}
+                          >
+                            {m.name}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-3">
+                      {editingMajor ? (
+                        <div className="space-y-4">
+                          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
+                            <div>
+                              <p className="text-xs text-blue-600 font-bold uppercase tracking-wider">Jurusan Terpilih</p>
+                              <h3 className="text-xl font-bold text-gray-800">{editingMajor.name}</h3>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs text-gray-500 font-mono">{editingMajor.exams.length} Mata Ujian Terdaftar</p>
+                            </div>
                           </div>
-                          <div className="space-y-1">
-                            {editingMajor.exams.map(e => (
-                              <div key={e.id} className="flex items-center gap-1 group">
-                                <Button 
-                                  variant={editingExam?.id === e.id ? "secondary" : "ghost"}
-                                  onClick={() => setEditingExam(e)}
-                                  className={`flex-grow justify-start text-xs h-9 ${editingExam?.id === e.id ? "bg-blue-100 text-blue-800" : ""}`}
-                                >
-                                  {e.subject}
-                                </Button>
-                                <Button 
-                                  variant="ghost" 
-                                  size="icon" 
-                                  className="h-8 w-8 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => handleDeleteExam(e.id)}
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
+
+                          {editingMajor.exams.length > 0 ? (
+                            <div className="grid gap-3">
+                              {editingMajor.exams.map(exam => (
+                                <Card key={exam.id} className="overflow-hidden border-l-4 border-l-blue-500">
+                                  <CardContent className="p-4 flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                      <div className="bg-gray-100 p-2 rounded-lg">
+                                        <FileText className="w-5 h-5 text-gray-600" />
+                                      </div>
+                                      <div>
+                                        <h4 className="font-bold text-gray-800">{exam.subject}</h4>
+                                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                                          <span className="flex items-center gap-1 font-mono bg-gray-100 px-1.5 py-0.5 rounded">Token: {exam.token}</span>
+                                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {exam.duration}m</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Button variant="ghost" size="icon" className="text-blue-600 hover:bg-blue-50" onClick={() => handleEditExam(exam)}>
+                                        <Edit2 className="w-4 h-4" />
+                                      </Button>
+                                      <Button variant="ghost" size="icon" className="text-red-500 hover:bg-red-50" onClick={() => handleDeleteExam(exam.id)}>
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl text-gray-400 bg-white">
+                              <FileText className="w-12 h-12 mb-2 opacity-10" />
+                              <p>Belum ada mata ujian untuk jurusan ini</p>
+                              <Button variant="link" onClick={handleAddExam} className="text-blue-600 mt-2">
+                                Tambah Mata Ujian Pertama
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl text-gray-400 bg-white">
+                          <LayoutDashboard className="w-12 h-12 mb-2 opacity-10" />
+                          <p>Pilih jurusan di sebelah kiri untuk mengelola soal</p>
                         </div>
                       )}
                     </div>
+                  </div>
 
-                    <div className="md:col-span-2">
-                      {editingExam && editingMajor ? (
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Konfigurasi Mata Ujian</CardTitle>
-                            <CardDescription>{editingMajor.name} &bull; {editingExam.subject}</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <form onSubmit={handleSaveMajor} className="space-y-4">
+                  {/* Exam Editor Modal */}
+                  <AnimatePresence>
+                    {isExamModalOpen && editingExam && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                          className="w-full max-w-lg"
+                        >
+                          <Card className="shadow-2xl border-t-4 border-t-blue-600">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                              <div>
+                                <CardTitle>Konfigurasi Mata Ujian</CardTitle>
+                                <CardDescription>Detail soal dan akses ujian</CardDescription>
+                              </div>
+                              <Button variant="ghost" size="icon" onClick={() => setIsExamModalOpen(false)}>
+                                <X className="w-5 h-5" />
+                              </Button>
+                            </CardHeader>
+                            <CardContent className="space-y-4 pt-4">
                               <div className="space-y-2">
                                 <Label>Nama Mata Pelajaran</Label>
                                 <Input 
+                                  placeholder="Contoh: Matematika Dasar"
                                   value={editingExam.subject}
-                                  onChange={(e) => {
-                                    const updatedExams = editingMajor.exams.map(ex => ex.id === editingExam.id ? { ...ex, subject: e.target.value } : ex);
-                                    setEditingMajor({ ...editingMajor, exams: updatedExams });
-                                    setEditingExam({ ...editingExam, subject: e.target.value });
-                                  }}
+                                  onChange={(e) => setEditingExam({ ...editingExam, subject: e.target.value })}
                                 />
                               </div>
                               <div className="space-y-2">
                                 <Label>Link Google Form / Drive</Label>
                                 <Input 
+                                  placeholder="https://forms.gle/..."
                                   value={editingExam.link}
-                                  onChange={(e) => {
-                                    const updatedExams = editingMajor.exams.map(ex => ex.id === editingExam.id ? { ...ex, link: e.target.value } : ex);
-                                    setEditingMajor({ ...editingMajor, exams: updatedExams });
-                                    setEditingExam({ ...editingExam, link: e.target.value });
-                                  }}
+                                  onChange={(e) => setEditingExam({ ...editingExam, link: e.target.value })}
                                 />
                               </div>
                               <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                   <Label>Token Akses</Label>
                                   <Input 
-                                    className="font-mono uppercase"
+                                    className="font-mono uppercase tracking-widest"
+                                    placeholder="TOKEN123"
                                     value={editingExam.token}
-                                    onChange={(e) => {
-                                      const updatedExams = editingMajor.exams.map(ex => ex.id === editingExam.id ? { ...ex, token: e.target.value } : ex);
-                                      setEditingMajor({ ...editingMajor, exams: updatedExams });
-                                      setEditingExam({ ...editingExam, token: e.target.value });
-                                    }}
+                                    onChange={(e) => setEditingExam({ ...editingExam, token: e.target.value.toUpperCase() })}
                                   />
                                 </div>
                                 <div className="space-y-2">
@@ -576,28 +652,24 @@ export default function App() {
                                   <Input 
                                     type="number"
                                     value={editingExam.duration}
-                                    onChange={(e) => {
-                                      const updatedExams = editingMajor.exams.map(ex => ex.id === editingExam.id ? { ...ex, duration: e.target.value } : ex);
-                                      setEditingMajor({ ...editingMajor, exams: updatedExams });
-                                      setEditingExam({ ...editingExam, duration: e.target.value });
-                                    }}
+                                    onChange={(e) => setEditingExam({ ...editingExam, duration: e.target.value })}
                                   />
                                 </div>
                               </div>
-                              <Button type="submit" className="w-full bg-blue-600" disabled={isLoading}>
-                                {isLoading ? "Menyimpan..." : isSaved ? "Berhasil Disimpan!" : "Simpan Perubahan"}
+                            </CardContent>
+                            <CardFooter className="flex gap-3 pt-2">
+                              <Button variant="outline" className="flex-grow" onClick={() => setIsExamModalOpen(false)}>
+                                Batal
                               </Button>
-                            </form>
-                          </CardContent>
-                        </Card>
-                      ) : (
-                        <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed rounded-xl text-gray-400 bg-white">
-                          <FileText className="w-12 h-12 mb-2 opacity-10" />
-                          <p>Pilih jurusan dan mata ujian untuk mengedit</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                              <Button className="flex-grow bg-blue-600 hover:bg-blue-700" onClick={handleSaveExamModal}>
+                                Simpan Detail
+                              </Button>
+                            </CardFooter>
+                          </Card>
+                        </motion.div>
+                      </div>
+                    )}
+                  </AnimatePresence>
                 </div>
               )}
 
