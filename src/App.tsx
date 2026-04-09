@@ -92,21 +92,27 @@ export default function App() {
         .from('majors')
         .select('*');
       
-      if (majorsError) throw majorsError;
+      if (majorsError) {
+        console.warn('Majors table might not exist yet:', majorsError);
+      }
 
       // Fetch Exams
       const { data: examsData, error: examsError } = await supabase
         .from('exams')
         .select('*');
       
-      if (examsError) throw examsError;
+      if (examsError) {
+        console.warn('Exams table might not exist yet:', examsError);
+      }
 
       // Fetch Settings
       const { data: settingsData, error: settingsError } = await supabase
         .from('settings')
         .select('*');
       
-      if (settingsError) throw settingsError;
+      if (settingsError) {
+        console.warn('Settings table might not exist yet:', settingsError);
+      }
 
       // Combine data
       const formattedMajors = (majorsData || []).map(major => ({
@@ -128,18 +134,14 @@ export default function App() {
 
       if (settingsData && settingsData.length > 0) {
         const settingsObj: any = {};
-        settingsData.forEach(s => settingsObj[s.key] = s.value);
+        settingsData.forEach(s => {
+          // Handle both string and object values if stored as JSONB
+          settingsObj[s.key] = typeof s.value === 'object' ? s.value : s.value;
+        });
         setExamSettings(prev => ({ ...prev, ...settingsObj }));
       }
     } catch (error) {
       console.error('Error fetching data from Supabase:', error);
-      // Fallback data
-      setMajors([
-        { id: "tkj", name: "Teknik Komputer & Jaringan", exams: [] },
-        { id: "rpl", name: "Rekayasa Perangkat Lunak", exams: [] },
-        { id: "akl", name: "Akuntansi", exams: [] },
-        { id: "otkp", name: "Perkantoran", exams: [] },
-      ]);
     } finally {
       setIsInitialLoading(false);
     }
@@ -249,23 +251,25 @@ export default function App() {
   const handleSaveSettings = async () => {
     setIsLoading(true);
     try {
-      // Menyiapkan data untuk disimpan
+      // Data yang akan disimpan
       const settingsToSave = [
         { key: 'title', value: examSettings.title },
         { key: 'status', value: examSettings.status },
         { key: 'schoolName', value: examSettings.schoolName }
       ];
 
-      console.log('Mencoba menyimpan pengaturan ke Supabase:', settingsToSave);
+      console.log('Menyimpan pengaturan:', settingsToSave);
 
-      // Melakukan upsert ke tabel settings
-      const { error } = await supabase
-        .from('settings')
-        .upsert(settingsToSave, { onConflict: 'key' });
-      
-      if (error) {
-        console.error('Supabase Upsert Error:', error);
-        throw error;
+      // Gunakan loop untuk menyimpan satu per satu agar lebih stabil jika bulk upsert bermasalah
+      for (const item of settingsToSave) {
+        const { error } = await supabase
+          .from('settings')
+          .upsert(item, { onConflict: 'key' });
+        
+        if (error) {
+          console.error(`Gagal menyimpan key: ${item.key}`, error);
+          throw error;
+        }
       }
 
       setIsSaved(true);
@@ -273,7 +277,7 @@ export default function App() {
     } catch (error: any) {
       console.error('Error detail:', error);
       const errorMsg = error.message || error.details || 'Terjadi kesalahan koneksi';
-      alert(`Gagal Update Pengaturan!\n\nDetail Error: ${errorMsg}\n\nPastikan:\n1. Tabel 'settings' sudah ada.\n2. Kolom 'key' adalah Primary Key.\n3. RLS Policy sudah diatur ke 'Allow All'.`);
+      alert(`Gagal Update Pengaturan!\n\nError: ${errorMsg}\n\nSaran: Pastikan tabel 'settings' sudah dibuat di Supabase dengan kolom 'key' (Primary Key) dan 'value'.`);
     } finally {
       setIsLoading(false);
     }
