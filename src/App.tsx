@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
+import { supabase } from "./lib/supabase";
 import { 
   User, 
   Lock, 
@@ -61,26 +62,7 @@ export default function App() {
   const [isSaved, setIsSaved] = useState(false);
 
   // Initial Majors Data with Multiple Exams
-  const [majors, setMajors] = useState<Major[]>([
-    { 
-      id: "tkj", 
-      name: "Teknik Komputer & Jaringan", 
-      exams: [
-        { id: "tkj-1", subject: "Dasar Desain Grafis", link: "https://forms.google.com", token: "DDG2026", duration: "90" },
-        { id: "tkj-2", subject: "Administrasi Sistem Jaringan", link: "https://forms.google.com", token: "ASJ2026", duration: "120" }
-      ]
-    },
-    { 
-      id: "rpl", 
-      name: "Rekayasa Perangkat Lunak", 
-      exams: [
-        { id: "rpl-1", subject: "Pemrograman Berorientasi Objek", link: "https://forms.google.com", token: "PBO2026", duration: "120" },
-        { id: "rpl-2", subject: "Basis Data", link: "https://forms.google.com", token: "BD2026", duration: "90" }
-      ]
-    },
-    { id: "akl", name: "Akuntansi", exams: [] },
-    { id: "otkp", name: "Perkantoran", exams: [] },
-  ]);
+  const [majors, setMajors] = useState<Major[]>([]);
 
   // Global Exam Settings
   const [examSettings, setExamSettings] = useState({
@@ -91,6 +73,54 @@ export default function App() {
 
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
+
+  // Fetch Data from Supabase
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      // Fetch Settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 1)
+        .single();
+      
+      if (settingsData) {
+        setExamSettings({
+          title: settingsData.title,
+          status: settingsData.status,
+          schoolName: settingsData.school_name
+        });
+      }
+
+      // Fetch Majors and Exams
+      const { data: majorsData, error: majorsError } = await supabase
+        .from('majors')
+        .select(`
+          id,
+          name,
+          exams (
+            id,
+            subject,
+            link,
+            token,
+            duration
+          )
+        `);
+
+      if (majorsData) {
+        setMajors(majorsData as Major[]);
+      }
+    } catch (err) {
+      console.error("Error fetching data:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleStartExam = () => {
     if (!selectedExam) return;
@@ -106,57 +136,136 @@ export default function App() {
     }
   };
 
-  const handleSaveMajor = (e: React.FormEvent) => {
+  const handleSaveMajor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMajor) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      setMajors(prev => prev.map(m => m.id === editingMajor.id ? editingMajor : m));
-      setIsLoading(false);
+    try {
+      // Update Major Name
+      await supabase
+        .from('majors')
+        .update({ name: editingMajor.name })
+        .eq('id', editingMajor.id);
+
+      // Update Exams
+      for (const exam of editingMajor.exams) {
+        await supabase
+          .from('exams')
+          .upsert({
+            id: exam.id,
+            major_id: editingMajor.id,
+            subject: exam.subject,
+            link: exam.link,
+            token: exam.token,
+            duration: exam.duration
+          });
+      }
+
+      await fetchData();
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    }, 800);
-  };
-
-  const handleAddMajor = () => {
-    const newId = `new-${Date.now()}`;
-    const newMajor: Major = {
-      id: newId,
-      name: "Jurusan Baru",
-      exams: []
-    };
-    setMajors([...majors, newMajor]);
-    setEditingMajor(newMajor);
-  };
-
-  const handleDeleteMajor = (id: string) => {
-    if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
-      setMajors(majors.filter(m => m.id !== id));
-      if (editingMajor?.id === id) setEditingMajor(null);
+    } catch (err) {
+      console.error("Error saving major:", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleAddExam = () => {
+  const handleAddMajor = async () => {
+    const newId = `major-${Date.now()}`;
+    const newMajorName = "Jurusan Baru";
+    
+    try {
+      await supabase
+        .from('majors')
+        .insert({ id: newId, name: newMajorName });
+      
+      await fetchData();
+      const newMajor = { id: newId, name: newMajorName, exams: [] };
+      setEditingMajor(newMajor);
+    } catch (err) {
+      console.error("Error adding major:", err);
+    }
+  };
+
+  const handleDeleteMajor = async (id: string) => {
+    if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
+      try {
+        await supabase.from('majors').delete().eq('id', id);
+        await fetchData();
+        if (editingMajor?.id === id) setEditingMajor(null);
+      } catch (err) {
+        console.error("Error deleting major:", err);
+      }
+    }
+  };
+
+  const handleAddExam = async () => {
     if (!editingMajor) return;
-    const newExam: Exam = {
-      id: `exam-${Date.now()}`,
+    const newExamId = `exam-${Date.now()}`;
+    const newExam = {
+      id: newExamId,
+      major_id: editingMajor.id,
       subject: "Mata Pelajaran Baru",
       link: "https://forms.google.com",
       token: "TOKEN123",
       duration: "90"
     };
-    const updatedMajor = { ...editingMajor, exams: [...editingMajor.exams, newExam] };
-    setEditingMajor(updatedMajor);
-    setEditingExam(newExam);
+
+    try {
+      await supabase.from('exams').insert(newExam);
+      await fetchData();
+      
+      // Update local editing state
+      const updatedMajor = { ...editingMajor, exams: [...editingMajor.exams, {
+        id: newExamId,
+        subject: newExam.subject,
+        link: newExam.link,
+        token: newExam.token,
+        duration: newExam.duration
+      }] };
+      setEditingMajor(updatedMajor);
+      setEditingExam(updatedMajor.exams.find(e => e.id === newExamId) || null);
+    } catch (err) {
+      console.error("Error adding exam:", err);
+    }
   };
 
-  const handleDeleteExam = (examId: string) => {
+  const handleDeleteExam = async (examId: string) => {
     if (!editingMajor) return;
     if (confirm("Hapus mata ujian ini?")) {
-      const updatedMajor = { ...editingMajor, exams: editingMajor.exams.filter(e => e.id !== examId) };
-      setEditingMajor(updatedMajor);
-      if (editingExam?.id === examId) setEditingExam(null);
+      try {
+        await supabase.from('exams').delete().eq('id', examId);
+        await fetchData();
+        
+        const updatedMajor = { ...editingMajor, exams: editingMajor.exams.filter(e => e.id !== examId) };
+        setEditingMajor(updatedMajor);
+        if (editingExam?.id === examId) setEditingExam(null);
+      } catch (err) {
+        console.error("Error deleting exam:", err);
+      }
+    }
+  };
+
+  const handleUpdateSettings = async () => {
+    setIsLoading(true);
+    try {
+      await supabase
+        .from('settings')
+        .update({
+          school_name: examSettings.schoolName,
+          title: examSettings.title,
+          status: examSettings.status
+        })
+        .eq('id', 1);
+      
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2000);
+    } catch (err) {
+      console.error("Error updating settings:", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -502,14 +611,7 @@ export default function App() {
                           </select>
                         </div>
                       </div>
-                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={() => {
-                        setIsLoading(true);
-                        setTimeout(() => {
-                          setIsLoading(false);
-                          setIsSaved(true);
-                          setTimeout(() => setIsSaved(false), 2000);
-                        }, 500);
-                      }}>
+                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleUpdateSettings}>
                         {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
                       </Button>
                     </CardContent>
