@@ -64,6 +64,17 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
+  const [dbStatus, setDbStatus] = useState<{
+    majors: boolean;
+    exams: boolean;
+    settings: boolean;
+    connected: boolean;
+  }>({
+    majors: false,
+    exams: false,
+    settings: false,
+    connected: false
+  });
 
   // Initial Majors Data with Multiple Exams
   const [majors, setMajors] = useState<Major[]>([]);
@@ -86,6 +97,8 @@ export default function App() {
 
   const fetchData = async () => {
     setIsInitialLoading(true);
+    let status = { majors: false, exams: false, settings: false, connected: true };
+    
     try {
       // Fetch Majors
       const { data: majorsData, error: majorsError } = await supabase
@@ -94,6 +107,8 @@ export default function App() {
       
       if (majorsError) {
         console.warn('Majors table might not exist yet:', majorsError);
+      } else {
+        status.majors = true;
       }
 
       // Fetch Exams
@@ -103,6 +118,8 @@ export default function App() {
       
       if (examsError) {
         console.warn('Exams table might not exist yet:', examsError);
+      } else {
+        status.exams = true;
       }
 
       // Fetch Settings
@@ -112,7 +129,11 @@ export default function App() {
       
       if (settingsError) {
         console.warn('Settings table might not exist yet:', settingsError);
+      } else {
+        status.settings = true;
       }
+
+      setDbStatus(status);
 
       // Combine data
       const formattedMajors = (majorsData || []).map(major => ({
@@ -135,13 +156,13 @@ export default function App() {
       if (settingsData && settingsData.length > 0) {
         const settingsObj: any = {};
         settingsData.forEach(s => {
-          // Handle both string and object values if stored as JSONB
-          settingsObj[s.key] = typeof s.value === 'object' ? s.value : s.value;
+          settingsObj[s.key] = s.value;
         });
         setExamSettings(prev => ({ ...prev, ...settingsObj }));
       }
     } catch (error) {
       console.error('Error fetching data from Supabase:', error);
+      setDbStatus({ ...status, connected: false });
     } finally {
       setIsInitialLoading(false);
     }
@@ -418,7 +439,15 @@ export default function App() {
               <div className="bg-blue-600 p-1.5 rounded-lg">
                 <LayoutDashboard className="w-5 h-5 text-white" />
               </div>
-              <h1 className="text-lg font-bold tracking-tight">ADMIN PANEL US 2026</h1>
+              <div>
+                <h1 className="text-lg font-bold tracking-tight leading-none">ADMIN PANEL US 2026</h1>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <div className={`w-2 h-2 rounded-full ${dbStatus.connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                  <p className="text-[10px] text-gray-400 font-mono uppercase">
+                    DB: {dbStatus.connected ? 'CONNECTED' : 'DISCONNECTED'}
+                  </p>
+                </div>
+              </div>
             </div>
             <Button 
               variant="ghost" 
@@ -677,42 +706,111 @@ export default function App() {
                 </div>
               )}
 
-              {adminTab === "settings" && (
+               {adminTab === "settings" && (
                 <div className="space-y-6">
-                  <h2 className="text-2xl font-bold text-gray-800">Manajemen Ujian</h2>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Pengaturan Global</CardTitle>
-                      <CardDescription>Konfigurasi yang muncul di halaman depan siswa</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Nama Sekolah</Label>
-                          <Input value={examSettings.schoolName} onChange={e => setExamSettings({...examSettings, schoolName: e.target.value})} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Judul Ujian</Label>
-                          <Input value={examSettings.title} onChange={e => setExamSettings({...examSettings, title: e.target.value})} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Status Sistem</Label>
-                          <select 
-                            className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm"
-                            value={examSettings.status}
-                            onChange={e => setExamSettings({...examSettings, status: e.target.value})}
-                          >
-                            <option>Aktif</option>
-                            <option>Maintenance</option>
-                            <option>Selesai</option>
-                          </select>
-                        </div>
-                      </div>
-                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleSaveSettings}>
-                        {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
-                      </Button>
-                    </CardContent>
-                  </Card>
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-2xl font-bold text-gray-800">Manajemen Ujian</h2>
+                    <Button variant="outline" size="sm" onClick={fetchData} className="gap-2">
+                      <RefreshCcw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                      Cek Koneksi DB
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="lg:col-span-2 space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>Pengaturan Global</CardTitle>
+                          <CardDescription>Konfigurasi yang muncul di halaman depan siswa</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label>Nama Sekolah</Label>
+                              <Input value={examSettings.schoolName} onChange={e => setExamSettings({...examSettings, schoolName: e.target.value})} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Judul Ujian</Label>
+                              <Input value={examSettings.title} onChange={e => setExamSettings({...examSettings, title: e.target.value})} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Status Sistem</Label>
+                              <select 
+                                className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm"
+                                value={examSettings.status}
+                                onChange={e => setExamSettings({...examSettings, status: e.target.value})}
+                              >
+                                <option>Aktif</option>
+                                <option>Maintenance</option>
+                                <option>Selesai</option>
+                              </select>
+                            </div>
+                          </div>
+                          <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleSaveSettings}>
+                            {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
+                          </Button>
+                        </CardContent>
+                      </Card>
+
+                      <Card className="border-amber-200 bg-amber-50/30">
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-amber-800 flex items-center gap-2">
+                            <AlertCircle className="w-5 h-5" />
+                            Panduan Koneksi Database
+                          </CardTitle>
+                          <CardDescription className="text-amber-700">
+                            Jika pengaturan tidak tersimpan, jalankan SQL ini di Dashboard Supabase Anda.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-[11px] overflow-x-auto">
+                            <pre>{`-- Jalankan ini di SQL Editor Supabase
+CREATE TABLE IF NOT EXISTS settings (
+  key text PRIMARY KEY,
+  value text NOT NULL
+);
+
+ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow public access" ON settings;
+CREATE POLICY "Allow public access" ON settings 
+FOR ALL USING (true) WITH CHECK (true);`}</pre>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    <div className="space-y-6">
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-sm">Status Tabel Database</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div className="flex items-center justify-between p-2 rounded bg-gray-50">
+                            <span className="text-xs font-medium">Tabel Jurusan</span>
+                            {dbStatus.majors ? 
+                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">READY</span> : 
+                              <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">MISSING</span>
+                            }
+                          </div>
+                          <div className="flex items-center justify-between p-2 rounded bg-gray-50">
+                            <span className="text-xs font-medium">Tabel Mata Ujian</span>
+                            {dbStatus.exams ? 
+                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">READY</span> : 
+                              <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">MISSING</span>
+                            }
+                          </div>
+                          <div className="flex items-center justify-between p-2 rounded bg-gray-50">
+                            <span className="text-xs font-medium">Tabel Pengaturan</span>
+                            {dbStatus.settings ? 
+                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">READY</span> : 
+                              <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">MISSING</span>
+                            }
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
