@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { supabase } from "./lib/supabase";
 import { 
@@ -27,7 +27,8 @@ import {
   Clock,
   Plus,
   Trash2,
-  LayoutDashboard
+  LayoutDashboard,
+  RefreshCcw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,18 +60,11 @@ export default function App() {
   const [inputToken, setInputToken] = useState("");
   const [tokenError, setTokenError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
 
   // Initial Majors Data with Multiple Exams
-  const [majors, setMajors] = useState<Major[]>([
-    { 
-      id: "tkj", 
-      name: "Teknik Komputer & Jaringan (Offline Mode)", 
-      exams: [
-        { id: "tkj-1", subject: "Dasar Desain Grafis", link: "https://forms.google.com", token: "DDG2026", duration: "90" }
-      ]
-    }
-  ]);
+  const [majors, setMajors] = useState<Major[]>([]);
 
   // Global Exam Settings
   const [examSettings, setExamSettings] = useState({
@@ -81,52 +75,70 @@ export default function App() {
 
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
-  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  // Fetch Data from Supabase
+  // Fetch data from Supabase on mount
   useEffect(() => {
     fetchData();
   }, []);
 
   const fetchData = async () => {
+    setIsInitialLoading(true);
     try {
-      // Fetch Settings
-      const { data: settingsData } = await supabase
-        .from('settings')
-        .select('*')
-        .eq('id', 1)
-        .single();
-      
-      if (settingsData) {
-        setExamSettings({
-          title: settingsData.title,
-          status: settingsData.status,
-          schoolName: settingsData.school_name
-        });
-      }
-
-      // Fetch Majors and Exams
-      const { data: majorsData } = await supabase
+      // Fetch Majors
+      const { data: majorsData, error: majorsError } = await supabase
         .from('majors')
-        .select(`
-          id,
-          name,
-          exams (
-            id,
-            subject,
-            link,
-            token,
-            duration
-          )
-        `);
+        .select('*');
+      
+      if (majorsError) throw majorsError;
 
-      if (majorsData && majorsData.length > 0) {
-        setMajors(majorsData as Major[]);
+      // Fetch Exams
+      const { data: examsData, error: examsError } = await supabase
+        .from('exams')
+        .select('*');
+      
+      if (examsError) throw examsError;
+
+      // Fetch Settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('settings')
+        .select('*');
+      
+      if (settingsError) throw settingsError;
+
+      // Combine data
+      const formattedMajors = (majorsData || []).map(major => ({
+        ...major,
+        exams: (examsData || []).filter(exam => exam.major_id === major.id)
+      }));
+
+      if (formattedMajors.length > 0) {
+        setMajors(formattedMajors);
+      } else {
+        // Fallback if DB is empty
+        setMajors([
+          { id: "tkj", name: "Teknik Komputer & Jaringan", exams: [] },
+          { id: "rpl", name: "Rekayasa Perangkat Lunak", exams: [] },
+          { id: "akl", name: "Akuntansi", exams: [] },
+          { id: "otkp", name: "Perkantoran", exams: [] },
+        ]);
       }
-    } catch (err) {
-      console.warn("Using fallback data. Supabase might not be configured or table 'settings'/'majors' missing.", err);
+
+      if (settingsData && settingsData.length > 0) {
+        const settingsObj: any = {};
+        settingsData.forEach(s => settingsObj[s.key] = s.value);
+        setExamSettings(prev => ({ ...prev, ...settingsObj }));
+      }
+    } catch (error) {
+      console.error('Error fetching data from Supabase:', error);
+      // Fallback data
+      setMajors([
+        { id: "tkj", name: "Teknik Komputer & Jaringan", exams: [] },
+        { id: "rpl", name: "Rekayasa Perangkat Lunak", exams: [] },
+        { id: "akl", name: "Akuntansi", exams: [] },
+        { id: "otkp", name: "Perkantoran", exams: [] },
+      ]);
     } finally {
-      setIsDataLoaded(true);
+      setIsInitialLoading(false);
     }
   };
 
@@ -150,130 +162,131 @@ export default function App() {
 
     setIsLoading(true);
     try {
-      // Update Major Name
-      await supabase
+      // Save Major
+      const { error: majorError } = await supabase
         .from('majors')
-        .update({ name: editingMajor.name })
-        .eq('id', editingMajor.id);
+        .upsert({ id: editingMajor.id, name: editingMajor.name });
+      
+      if (majorError) throw majorError;
 
-      // Update Exams
-      for (const exam of editingMajor.exams) {
-        await supabase
+      // Save Exams (Delete old ones for this major and insert new ones)
+      // Note: In a real app, you'd handle this more carefully
+      await supabase.from('exams').delete().eq('major_id', editingMajor.id);
+      
+      if (editingMajor.exams.length > 0) {
+        const { error: examsError } = await supabase
           .from('exams')
-          .upsert({
-            id: exam.id,
+          .insert(editingMajor.exams.map(ex => ({
+            id: ex.id,
             major_id: editingMajor.id,
-            subject: exam.subject,
-            link: exam.link,
-            token: exam.token,
-            duration: exam.duration
-          });
+            subject: ex.subject,
+            link: ex.link,
+            token: ex.token,
+            duration: ex.duration
+          })));
+        
+        if (examsError) throw examsError;
       }
 
-      await fetchData();
+      setMajors(prev => prev.map(m => m.id === editingMajor.id ? editingMajor : m));
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    } catch (err) {
-      console.error("Error saving major:", err);
+    } catch (error) {
+      console.error('Error saving to Supabase:', error);
+      alert('Gagal menyimpan ke database. Pastikan tabel sudah dibuat di Supabase.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleAddMajor = async () => {
-    const newId = `major-${Date.now()}`;
-    const newMajorName = "Jurusan Baru";
+    const newId = `new-${Date.now()}`;
+    const newMajor: Major = {
+      id: newId,
+      name: "Jurusan Baru",
+      exams: []
+    };
     
+    setIsLoading(true);
     try {
-      await supabase
+      const { error } = await supabase
         .from('majors')
-        .insert({ id: newId, name: newMajorName });
+        .insert({ id: newMajor.id, name: newMajor.name });
       
-      await fetchData();
-      const newMajor = { id: newId, name: newMajorName, exams: [] };
+      if (error) throw error;
+      
+      setMajors([...majors, newMajor]);
       setEditingMajor(newMajor);
-    } catch (err) {
-      console.error("Error adding major:", err);
+    } catch (error) {
+      console.error('Error adding major:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleDeleteMajor = async (id: string) => {
     if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
+      setIsLoading(true);
       try {
-        await supabase.from('majors').delete().eq('id', id);
-        await fetchData();
+        await supabase.from('exams').delete().eq('major_id', id);
+        const { error } = await supabase.from('majors').delete().eq('id', id);
+        
+        if (error) throw error;
+
+        setMajors(majors.filter(m => m.id !== id));
         if (editingMajor?.id === id) setEditingMajor(null);
-      } catch (err) {
-        console.error("Error deleting major:", err);
+      } catch (error) {
+        console.error('Error deleting major:', error);
+      } finally {
+        setIsLoading(false);
       }
     }
   };
 
-  const handleAddExam = async () => {
+  const handleSaveSettings = async () => {
+    setIsLoading(true);
+    try {
+      const settingsToSave = [
+        { key: 'title', value: examSettings.title },
+        { key: 'status', value: examSettings.status },
+        { key: 'schoolName', value: examSettings.schoolName }
+      ];
+
+      const { error } = await supabase
+        .from('settings')
+        .upsert(settingsToSave);
+      
+      if (error) throw error;
+
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2000);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddExam = () => {
     if (!editingMajor) return;
-    const newExamId = `exam-${Date.now()}`;
-    const newExam = {
-      id: newExamId,
-      major_id: editingMajor.id,
+    const newExam: Exam = {
+      id: `exam-${Date.now()}`,
       subject: "Mata Pelajaran Baru",
       link: "https://forms.google.com",
       token: "TOKEN123",
       duration: "90"
     };
-
-    try {
-      await supabase.from('exams').insert(newExam);
-      await fetchData();
-      
-      // Update local editing state
-      const updatedMajor = { ...editingMajor, exams: [...editingMajor.exams, {
-        id: newExamId,
-        subject: newExam.subject,
-        link: newExam.link,
-        token: newExam.token,
-        duration: newExam.duration
-      }] };
-      setEditingMajor(updatedMajor);
-      setEditingExam(updatedMajor.exams.find(e => e.id === newExamId) || null);
-    } catch (err) {
-      console.error("Error adding exam:", err);
-    }
+    const updatedMajor = { ...editingMajor, exams: [...editingMajor.exams, newExam] };
+    setEditingMajor(updatedMajor);
+    setEditingExam(newExam);
   };
 
-  const handleDeleteExam = async (examId: string) => {
+  const handleDeleteExam = (examId: string) => {
     if (!editingMajor) return;
     if (confirm("Hapus mata ujian ini?")) {
-      try {
-        await supabase.from('exams').delete().eq('id', examId);
-        await fetchData();
-        
-        const updatedMajor = { ...editingMajor, exams: editingMajor.exams.filter(e => e.id !== examId) };
-        setEditingMajor(updatedMajor);
-        if (editingExam?.id === examId) setEditingExam(null);
-      } catch (err) {
-        console.error("Error deleting exam:", err);
-      }
-    }
-  };
-
-  const handleUpdateSettings = async () => {
-    setIsLoading(true);
-    try {
-      await supabase
-        .from('settings')
-        .update({
-          school_name: examSettings.schoolName,
-          title: examSettings.title,
-          status: examSettings.status
-        })
-        .eq('id', 1);
-      
-      setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2000);
-    } catch (err) {
-      console.error("Error updating settings:", err);
-    } finally {
-      setIsLoading(false);
+      const updatedMajor = { ...editingMajor, exams: editingMajor.exams.filter(e => e.id !== examId) };
+      setEditingMajor(updatedMajor);
+      if (editingExam?.id === examId) setEditingExam(null);
     }
   };
 
@@ -286,19 +299,6 @@ export default function App() {
       setAdminLoginError(true);
     }
   };
-
-  if (!isDataLoaded) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-blue-50">
-        <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-          className="w-12 h-12 border-4 border-[#0056b3] border-t-transparent rounded-full mb-4"
-        />
-        <p className="text-[#0056b3] font-bold animate-pulse">Memuat Sistem Ujian...</p>
-      </div>
-    );
-  }
 
   if (isAdminView) {
     if (!isAdminAuthenticated) {
@@ -632,7 +632,7 @@ export default function App() {
                           </select>
                         </div>
                       </div>
-                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleUpdateSettings}>
+                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleSaveSettings}>
                         {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
                       </Button>
                     </CardContent>
@@ -687,7 +687,12 @@ export default function App() {
           transition={{ duration: 0.5 }}
           className="w-full max-w-2xl z-10"
         >
-          {examSettings.status === "Maintenance" ? (
+          {isInitialLoading ? (
+            <div className="flex flex-col items-center justify-center space-y-4 bg-white/80 backdrop-blur-sm p-12 rounded-3xl shadow-xl">
+              <RefreshCcw className="w-12 h-12 text-[#0056b3] animate-spin" />
+              <p className="text-gray-600 font-medium">Memuat Data Ujian...</p>
+            </div>
+          ) : examSettings.status === "Maintenance" ? (
             <Card className="text-center p-12 space-y-4">
               <div className="bg-amber-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
                 <AlertCircle className="w-10 h-10 text-amber-500" />
