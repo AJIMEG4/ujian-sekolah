@@ -62,7 +62,15 @@ export default function App() {
   const [isSaved, setIsSaved] = useState(false);
 
   // Initial Majors Data with Multiple Exams
-  const [majors, setMajors] = useState<Major[]>([]);
+  const [majors, setMajors] = useState<Major[]>([
+    { 
+      id: "tkj", 
+      name: "Teknik Komputer & Jaringan (Offline Mode)", 
+      exams: [
+        { id: "tkj-1", subject: "Dasar Desain Grafis", link: "https://forms.google.com", token: "DDG2026", duration: "90" }
+      ]
+    }
+  ]);
 
   // Global Exam Settings
   const [examSettings, setExamSettings] = useState({
@@ -73,6 +81,7 @@ export default function App() {
 
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   // Fetch Data from Supabase
   useEffect(() => {
@@ -80,10 +89,9 @@ export default function App() {
   }, []);
 
   const fetchData = async () => {
-    setIsLoading(true);
     try {
       // Fetch Settings
-      const { data: settingsData, error: settingsError } = await supabase
+      const { data: settingsData } = await supabase
         .from('settings')
         .select('*')
         .eq('id', 1)
@@ -98,7 +106,7 @@ export default function App() {
       }
 
       // Fetch Majors and Exams
-      const { data: majorsData, error: majorsError } = await supabase
+      const { data: majorsData } = await supabase
         .from('majors')
         .select(`
           id,
@@ -112,13 +120,13 @@ export default function App() {
           )
         `);
 
-      if (majorsData) {
+      if (majorsData && majorsData.length > 0) {
         setMajors(majorsData as Major[]);
       }
     } catch (err) {
-      console.error("Error fetching data:", err);
+      console.warn("Using fallback data. Supabase might not be configured or table 'settings'/'majors' missing.", err);
     } finally {
-      setIsLoading(false);
+      setIsDataLoaded(true);
     }
   };
 
@@ -278,6 +286,19 @@ export default function App() {
       setAdminLoginError(true);
     }
   };
+
+  if (!isDataLoaded) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-blue-50">
+        <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+          className="w-12 h-12 border-4 border-[#0056b3] border-t-transparent rounded-full mb-4"
+        />
+        <p className="text-[#0056b3] font-bold animate-pulse">Memuat Sistem Ujian...</p>
+      </div>
+    );
+  }
 
   if (isAdminView) {
     if (!isAdminAuthenticated) {
