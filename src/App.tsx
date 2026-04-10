@@ -64,6 +64,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const [dbStatus, setDbStatus] = useState<{
     majors: boolean;
     exams: boolean;
@@ -89,6 +90,8 @@ export default function App() {
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
   const [isExamModalOpen, setIsExamModalOpen] = useState(false);
+  const [isMajorModalOpen, setIsMajorModalOpen] = useState(false);
+  const [majorToEdit, setMajorToEdit] = useState<Major | null>(null);
 
   // Fetch data from Supabase on mount
   useEffect(() => {
@@ -225,26 +228,55 @@ export default function App() {
     }
   };
 
-  const handleAddMajor = async () => {
-    const newId = `new-${Date.now()}`;
+  const handleAddMajor = () => {
     const newMajor: Major = {
-      id: newId,
-      name: "Jurusan Baru",
+      id: `major-${Date.now()}`,
+      name: "",
       exams: []
     };
+    setMajorToEdit(newMajor);
+    setIsMajorModalOpen(true);
+  };
+
+  const handleEditMajorName = (major: Major) => {
+    setMajorToEdit({ ...major });
+    setIsMajorModalOpen(true);
+  };
+
+  const handleSaveMajorModal = async () => {
+    if (!majorToEdit) return;
     
+    const trimmedName = majorToEdit.name.trim();
+    if (!trimmedName) {
+      alert("Nama jurusan tidak boleh kosong");
+      return;
+    }
+
     setIsLoading(true);
     try {
       const { error } = await supabase
         .from('majors')
-        .insert({ id: newMajor.id, name: newMajor.name });
+        .upsert({ id: majorToEdit.id, name: trimmedName });
       
       if (error) throw error;
       
-      setMajors([...majors, newMajor]);
-      setEditingMajor(newMajor);
-    } catch (error) {
-      console.error('Error adding major:', error);
+      const majorExists = majors.find(m => m.id === majorToEdit.id);
+      if (majorExists) {
+        setMajors(prev => prev.map(m => m.id === majorToEdit.id ? { ...m, name: trimmedName } : m));
+        setSuccessMessage("Jurusan berhasil diperbarui!");
+      } else {
+        const newMajor = { ...majorToEdit, name: trimmedName, exams: [] };
+        setMajors(prev => [...prev, newMajor]);
+        setSuccessMessage("Jurusan baru berhasil ditambahkan!");
+      }
+      
+      setIsMajorModalOpen(false);
+      setMajorToEdit(null);
+      setTimeout(() => setSuccessMessage(""), 3000);
+    } catch (error: any) {
+      console.error('Error saving major:', error);
+      const msg = error.message || "Pastikan tabel 'majors' sudah ada di Supabase.";
+      alert(`Gagal menyimpan jurusan: ${msg}`);
     } finally {
       setIsLoading(false);
     }
@@ -335,8 +367,10 @@ export default function App() {
     }
     
     setEditingMajor({ ...editingMajor, exams: updatedExams });
+    setSuccessMessage(examExists ? "Mata ujian diperbarui!" : "Mata ujian ditambahkan!");
     setIsExamModalOpen(false);
     setEditingExam(null);
+    setTimeout(() => setSuccessMessage(""), 3000);
   };
 
   const handleDeleteExam = (examId: string) => {
@@ -495,37 +529,56 @@ export default function App() {
             </aside>
 
             {/* Content Area */}
-            <div className="flex-grow">
+            <div className="flex-grow relative">
+              <AnimatePresence>
+                {successMessage && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="absolute top-0 left-1/2 -translate-x-1/2 z-40 bg-green-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm font-bold"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    {successMessage}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               {adminTab === "majors" && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                     <h2 className="text-2xl font-bold text-gray-800">Manajemen Jurusan</h2>
-                    <Button onClick={handleAddMajor} className="bg-blue-600 hover:bg-blue-700 gap-2">
-                      <Plus className="w-4 h-4" /> Tambah Jurusan
-                    </Button>
+                    <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="w-full sm:w-auto">
+                      <Button onClick={handleAddMajor} className="w-full bg-blue-600 hover:bg-blue-700 gap-2 shadow-lg shadow-blue-200">
+                        <Plus className="w-4 h-4" /> Tambah Jurusan Baru
+                      </Button>
+                    </motion.div>
                   </div>
                   
                   <div className="grid gap-4">
                     {majors.map(major => (
                       <Card key={major.id} className="hover:shadow-md transition-shadow">
-                        <CardContent className="p-4 flex items-center justify-between">
+                        <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                           <div className="flex items-center gap-4">
-                            <div className="bg-blue-100 p-2 rounded-lg">
+                            <div className="bg-blue-100 p-2 rounded-lg shrink-0">
                               <GraduationCap className="w-5 h-5 text-blue-600" />
                             </div>
                             <div>
-                              <h3 className="font-bold text-gray-800">{major.name}</h3>
+                              <h3 className="font-bold text-gray-800 break-words">{major.name}</h3>
                               <p className="text-xs text-gray-500 uppercase font-mono">{major.id} &bull; {major.exams.length} Mata Ujian</p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => {
+                          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                            <Button variant="outline" size="sm" className="flex-grow sm:flex-grow-0" onClick={() => {
                               setEditingMajor(major);
                               setAdminTab("exams");
                             }}>
                               Kelola Soal
                             </Button>
-                            <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleDeleteMajor(major.id)}>
+                            <Button variant="ghost" size="icon" className="text-blue-600 hover:bg-blue-50 shrink-0" onClick={() => handleEditMajorName(major)}>
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0" onClick={() => handleDeleteMajor(major.id)}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
@@ -634,14 +687,18 @@ export default function App() {
                   </div>
 
                   {/* Exam Editor Modal */}
-                  <AnimatePresence>
+                   <AnimatePresence>
                     {isExamModalOpen && editingExam && (
-                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                      <div 
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                        onClick={() => !isLoading && setIsExamModalOpen(false)}
+                      >
                         <motion.div
                           initial={{ opacity: 0, scale: 0.9, y: 20 }}
                           animate={{ opacity: 1, scale: 1, y: 0 }}
                           exit={{ opacity: 0, scale: 0.9, y: 20 }}
                           className="w-full max-w-lg"
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <Card className="shadow-2xl border-t-4 border-t-blue-600">
                             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -649,7 +706,7 @@ export default function App() {
                                 <CardTitle>Konfigurasi Mata Ujian</CardTitle>
                                 <CardDescription>Detail soal dan akses ujian</CardDescription>
                               </div>
-                              <Button variant="ghost" size="icon" onClick={() => setIsExamModalOpen(false)}>
+                              <Button variant="ghost" size="icon" onClick={() => setIsExamModalOpen(false)} disabled={isLoading}>
                                 <X className="w-5 h-5" />
                               </Button>
                             </CardHeader>
@@ -660,6 +717,11 @@ export default function App() {
                                   placeholder="Contoh: Matematika Dasar"
                                   value={editingExam.subject}
                                   onChange={(e) => setEditingExam({ ...editingExam, subject: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !isLoading) {
+                                      handleSaveExamModal();
+                                    }
+                                  }}
                                 />
                               </div>
                               <div className="space-y-2">
@@ -668,6 +730,11 @@ export default function App() {
                                   placeholder="https://forms.gle/..."
                                   value={editingExam.link}
                                   onChange={(e) => setEditingExam({ ...editingExam, link: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !isLoading) {
+                                      handleSaveExamModal();
+                                    }
+                                  }}
                                 />
                               </div>
                               <div className="grid grid-cols-2 gap-4">
@@ -678,6 +745,11 @@ export default function App() {
                                     placeholder="TOKEN123"
                                     value={editingExam.token}
                                     onChange={(e) => setEditingExam({ ...editingExam, token: e.target.value.toUpperCase() })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !isLoading) {
+                                        handleSaveExamModal();
+                                      }
+                                    }}
                                   />
                                 </div>
                                 <div className="space-y-2">
@@ -686,16 +758,85 @@ export default function App() {
                                     type="number"
                                     value={editingExam.duration}
                                     onChange={(e) => setEditingExam({ ...editingExam, duration: e.target.value })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' && !isLoading) {
+                                        handleSaveExamModal();
+                                      }
+                                    }}
                                   />
                                 </div>
                               </div>
                             </CardContent>
                             <CardFooter className="flex gap-3 pt-2">
-                              <Button variant="outline" className="flex-grow" onClick={() => setIsExamModalOpen(false)}>
+                              <Button variant="outline" className="flex-grow" onClick={() => setIsExamModalOpen(false)} disabled={isLoading}>
                                 Batal
                               </Button>
-                              <Button className="flex-grow bg-blue-600 hover:bg-blue-700" onClick={handleSaveExamModal}>
-                                Simpan Detail
+                              <Button className="flex-grow bg-blue-600 hover:bg-blue-700" onClick={handleSaveExamModal} disabled={isLoading}>
+                                {isLoading ? (
+                                  <div className="flex items-center gap-2">
+                                    <RefreshCcw className="w-4 h-4 animate-spin" />
+                                    Menyimpan...
+                                  </div>
+                                ) : "Simpan Detail"}
+                              </Button>
+                            </CardFooter>
+                          </Card>
+                        </motion.div>
+                      </div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Major Editor Modal */}
+                  <AnimatePresence>
+                    {isMajorModalOpen && majorToEdit && (
+                      <div 
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                        onClick={() => !isLoading && setIsMajorModalOpen(false)}
+                      >
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                          className="w-full max-w-md"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Card className="shadow-2xl border-t-4 border-t-blue-600">
+                            <CardHeader className="flex flex-row items-center justify-between pb-2">
+                              <div>
+                                <CardTitle>{majors.find(m => m.id === majorToEdit.id) ? "Edit Jurusan" : "Tambah Jurusan"}</CardTitle>
+                                <CardDescription>Masukkan nama jurusan baru</CardDescription>
+                              </div>
+                              <Button variant="ghost" size="icon" onClick={() => setIsMajorModalOpen(false)} disabled={isLoading}>
+                                <X className="w-5 h-5" />
+                              </Button>
+                            </CardHeader>
+                            <CardContent className="space-y-4 pt-4">
+                              <div className="space-y-2">
+                                <Label>Nama Jurusan</Label>
+                                <Input 
+                                  placeholder="Contoh: Teknik Komputer & Jaringan"
+                                  value={majorToEdit.name}
+                                  onChange={(e) => setMajorToEdit({ ...majorToEdit, name: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && !isLoading) {
+                                      handleSaveMajorModal();
+                                    }
+                                  }}
+                                  autoFocus
+                                />
+                              </div>
+                            </CardContent>
+                            <CardFooter className="flex gap-3 pt-2">
+                              <Button variant="outline" className="flex-grow" onClick={() => setIsMajorModalOpen(false)} disabled={isLoading}>
+                                Batal
+                              </Button>
+                              <Button className="flex-grow bg-blue-600 hover:bg-blue-700" onClick={handleSaveMajorModal} disabled={isLoading}>
+                                {isLoading ? (
+                                  <div className="flex items-center gap-2">
+                                    <RefreshCcw className="w-4 h-4 animate-spin" />
+                                    Menyimpan...
+                                  </div>
+                                ) : "Simpan Jurusan"}
                               </Button>
                             </CardFooter>
                           </Card>
@@ -755,26 +896,51 @@ export default function App() {
                       <Card className="border-amber-200 bg-amber-50/30">
                         <CardHeader className="pb-2">
                           <CardTitle className="text-amber-800 flex items-center gap-2">
-                            <AlertCircle className="w-5 h-5" />
-                            Panduan Koneksi Database
+                            <ShieldCheck className="w-5 h-5" />
+                            Setup Database Lengkap
                           </CardTitle>
                           <CardDescription className="text-amber-700">
-                            Jika pengaturan tidak tersimpan, jalankan SQL ini di Dashboard Supabase Anda.
+                            Jalankan SQL ini di Dashboard Supabase untuk membuat semua tabel yang diperlukan.
                           </CardDescription>
                         </CardHeader>
                         <CardContent>
-                          <div className="bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-[11px] overflow-x-auto">
-                            <pre>{`-- Jalankan ini di SQL Editor Supabase
+                          <div className="bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-[10px] overflow-x-auto max-h-[300px] overflow-y-auto">
+                            <pre>{`-- 1. Tabel Jurusan
+CREATE TABLE IF NOT EXISTS majors (
+  id text PRIMARY KEY,
+  name text NOT NULL
+);
+
+-- 2. Tabel Mata Ujian
+CREATE TABLE IF NOT EXISTS exams (
+  id text PRIMARY KEY,
+  major_id text REFERENCES majors(id) ON DELETE CASCADE,
+  subject text NOT NULL,
+  link text NOT NULL,
+  token text NOT NULL,
+  duration text NOT NULL
+);
+
+-- 3. Tabel Pengaturan
 CREATE TABLE IF NOT EXISTS settings (
   key text PRIMARY KEY,
   value text NOT NULL
 );
 
+-- Aktifkan RLS (Security)
+ALTER TABLE majors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Allow public access" ON settings;
-CREATE POLICY "Allow public access" ON settings 
-FOR ALL USING (true) WITH CHECK (true);`}</pre>
+-- Kebijakan Akses Publik (PENTING)
+DROP POLICY IF EXISTS "Public Access" ON majors;
+CREATE POLICY "Public Access" ON majors FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Access" ON exams;
+CREATE POLICY "Public Access" ON exams FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Public Access" ON settings;
+CREATE POLICY "Public Access" ON settings FOR ALL USING (true) WITH CHECK (true);`}</pre>
                           </div>
                         </CardContent>
                       </Card>
