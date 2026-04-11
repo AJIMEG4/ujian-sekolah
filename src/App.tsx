@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
-import { supabase } from "./lib/supabase";
+import React, { useState } from "react";
+import { motion } from "motion/react";
 import { 
   User, 
   Lock, 
@@ -27,15 +26,22 @@ import {
   Clock,
   Plus,
   Trash2,
-  LayoutDashboard,
-  RefreshCcw,
-  X,
-  Edit2
+  LayoutDashboard
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { supabase } from "@/lib/supabase";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Exam {
   id: string;
@@ -43,12 +49,12 @@ interface Exam {
   link: string;
   token: string;
   duration: string;
+  enrolledMajorIds: string[];
 }
 
 interface Major {
   id: string;
   name: string;
-  exams: Exam[];
 }
 
 export default function App() {
@@ -62,25 +68,12 @@ export default function App() {
   const [inputToken, setInputToken] = useState("");
   const [tokenError, setTokenError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isSaved, setIsSaved] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
-  const [dbStatus, setDbStatus] = useState<{
-    majors: boolean;
-    exams: boolean;
-    settings: boolean;
-    connected: boolean;
-  }>({
-    majors: false,
-    exams: false,
-    settings: false,
-    connected: false
-  });
+  const [isAddMajorDialogOpen, setIsAddMajorDialogOpen] = useState(false);
+  const [newMajorName, setNewMajorName] = useState("");
 
-  // Initial Majors Data with Multiple Exams
   const [majors, setMajors] = useState<Major[]>([]);
-
-  // Global Exam Settings
+  const [exams, setExams] = useState<Exam[]>([]);
   const [examSettings, setExamSettings] = useState({
     title: "Ujian Sekolah Utama 2026",
     status: "Aktif",
@@ -89,29 +82,19 @@ export default function App() {
 
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
-  const [isExamModalOpen, setIsExamModalOpen] = useState(false);
-  const [isMajorModalOpen, setIsMajorModalOpen] = useState(false);
-  const [majorToEdit, setMajorToEdit] = useState<Major | null>(null);
 
-  // Fetch data from Supabase on mount
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    setIsInitialLoading(true);
-    let status = { majors: false, exams: false, settings: false, connected: true };
-    
-    try {
+  // Fetch data from Supabase
+  React.useEffect(() => {
+    const fetchData = async () => {
+      setIsLoading(true);
+      
       // Fetch Majors
       const { data: majorsData, error: majorsError } = await supabase
         .from('majors')
         .select('*');
       
-      if (majorsError) {
-        console.warn('Majors table might not exist yet:', majorsError);
-      } else {
-        status.majors = true;
+      if (!majorsError && majorsData) {
+        setMajors(majorsData);
       }
 
       // Fetch Exams
@@ -119,57 +102,38 @@ export default function App() {
         .from('exams')
         .select('*');
       
-      if (examsError) {
-        console.warn('Exams table might not exist yet:', examsError);
-      } else {
-        status.exams = true;
+      if (!examsError && examsData) {
+        // Map snake_case to camelCase
+        const mappedExams = examsData.map((ex: any) => ({
+          id: ex.id,
+          subject: ex.subject,
+          link: ex.link,
+          token: ex.token,
+          duration: ex.duration,
+          enrolledMajorIds: ex.enrolled_major_ids || []
+        }));
+        setExams(mappedExams);
       }
 
       // Fetch Settings
       const { data: settingsData, error: settingsError } = await supabase
         .from('settings')
-        .select('*');
+        .select('*')
+        .single();
       
-      if (settingsError) {
-        console.warn('Settings table might not exist yet:', settingsError);
-      } else {
-        status.settings = true;
-      }
-
-      setDbStatus(status);
-
-      // Combine data
-      const formattedMajors = (majorsData || []).map(major => ({
-        ...major,
-        exams: (examsData || []).filter(exam => exam.major_id === major.id)
-      }));
-
-      if (formattedMajors.length > 0) {
-        setMajors(formattedMajors);
-      } else {
-        // Fallback if DB is empty
-        setMajors([
-          { id: "tkj", name: "Teknik Komputer & Jaringan", exams: [] },
-          { id: "rpl", name: "Rekayasa Perangkat Lunak", exams: [] },
-          { id: "akl", name: "Akuntansi", exams: [] },
-          { id: "otkp", name: "Perkantoran", exams: [] },
-        ]);
-      }
-
-      if (settingsData && settingsData.length > 0) {
-        const settingsObj: any = {};
-        settingsData.forEach(s => {
-          settingsObj[s.key] = s.value;
+      if (!settingsError && settingsData) {
+        setExamSettings({
+          title: settingsData.title,
+          status: settingsData.status,
+          schoolName: settingsData.school_name
         });
-        setExamSettings(prev => ({ ...prev, ...settingsObj }));
       }
-    } catch (error) {
-      console.error('Error fetching data from Supabase:', error);
-      setDbStatus({ ...status, connected: false });
-    } finally {
-      setIsInitialLoading(false);
-    }
-  };
+
+      setIsLoading(false);
+    };
+
+    fetchData();
+  }, []);
 
   const handleStartExam = () => {
     if (!selectedExam) return;
@@ -185,201 +149,176 @@ export default function App() {
     }
   };
 
-  const handleSaveMajor = async (e: React.FormEvent) => {
+  const handleSaveExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingMajor) return;
+    if (!editingExam) return;
 
     setIsLoading(true);
-    try {
-      // Save Major
-      const { error: majorError } = await supabase
-        .from('majors')
-        .upsert({ id: editingMajor.id, name: editingMajor.name });
-      
-      if (majorError) throw majorError;
+    
+    const { error } = await supabase
+      .from('exams')
+      .upsert({
+        id: editingExam.id,
+        subject: editingExam.subject,
+        link: editingExam.link,
+        token: editingExam.token,
+        duration: editingExam.duration,
+        enrolled_major_ids: editingExam.enrolledMajorIds
+      });
 
-      // Save Exams (Delete old ones for this major and insert new ones)
-      // Note: In a real app, you'd handle this more carefully
-      await supabase.from('exams').delete().eq('major_id', editingMajor.id);
-      
-      if (editingMajor.exams.length > 0) {
-        const { error: examsError } = await supabase
-          .from('exams')
-          .insert(editingMajor.exams.map(ex => ({
-            id: ex.id,
-            major_id: editingMajor.id,
-            subject: ex.subject,
-            link: ex.link,
-            token: ex.token,
-            duration: ex.duration
-          })));
-        
-        if (examsError) throw examsError;
-      }
-
-      setMajors(prev => prev.map(m => m.id === editingMajor.id ? editingMajor : m));
+    if (!error) {
+      setExams(prev => prev.map(ex => ex.id === editingExam.id ? editingExam : ex));
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    } catch (error: any) {
-      console.error('Error saving to Supabase:', error);
-      alert(`Gagal menyimpan ke database: ${error.message || 'Terjadi kesalahan tidak diketahui'}. Pastikan tabel 'majors' dan 'exams' sudah dibuat di Supabase.`);
-    } finally {
-      setIsLoading(false);
+    } else {
+      console.error("Error saving exam:", error);
     }
+    setIsLoading(false);
   };
 
   const handleAddMajor = () => {
+    setNewMajorName("");
+    setIsAddMajorDialogOpen(true);
+  };
+
+  const confirmAddMajor = async () => {
+    if (!newMajorName.trim()) return;
+    const newId = `major-${Date.now()}`;
     const newMajor: Major = {
-      id: `major-${Date.now()}`,
-      name: "",
-      exams: []
+      id: newId,
+      name: newMajorName
     };
-    setMajorToEdit(newMajor);
-    setIsMajorModalOpen(true);
-  };
-
-  const handleEditMajorName = (major: Major) => {
-    setMajorToEdit({ ...major });
-    setIsMajorModalOpen(true);
-  };
-
-  const handleSaveMajorModal = async () => {
-    if (!majorToEdit) return;
-    
-    const trimmedName = majorToEdit.name.trim();
-    if (!trimmedName) {
-      alert("Nama jurusan tidak boleh kosong");
-      return;
-    }
 
     setIsLoading(true);
-    try {
-      const { error } = await supabase
-        .from('majors')
-        .upsert({ id: majorToEdit.id, name: trimmedName });
-      
-      if (error) throw error;
-      
-      const majorExists = majors.find(m => m.id === majorToEdit.id);
-      if (majorExists) {
-        setMajors(prev => prev.map(m => m.id === majorToEdit.id ? { ...m, name: trimmedName } : m));
-        setSuccessMessage("Jurusan berhasil diperbarui!");
-      } else {
-        const newMajor = { ...majorToEdit, name: trimmedName, exams: [] };
-        setMajors(prev => [...prev, newMajor]);
-        setSuccessMessage("Jurusan baru berhasil ditambahkan!");
-      }
-      
-      setIsMajorModalOpen(false);
-      setMajorToEdit(null);
-      setTimeout(() => setSuccessMessage(""), 3000);
-    } catch (error: any) {
-      console.error('Error saving major:', error);
-      const msg = error.message || "Pastikan tabel 'majors' sudah ada di Supabase.";
-      alert(`Gagal menyimpan jurusan: ${msg}`);
-    } finally {
-      setIsLoading(false);
+    const { error } = await supabase
+      .from('majors')
+      .insert([newMajor]);
+
+    if (!error) {
+      setMajors([...majors, newMajor]);
+      setEditingMajor(newMajor);
+      setIsAddMajorDialogOpen(false);
+    } else {
+      console.error("Error adding major:", error);
     }
+    setIsLoading(false);
   };
 
   const handleDeleteMajor = async (id: string) => {
     if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
       setIsLoading(true);
-      try {
-        await supabase.from('exams').delete().eq('major_id', id);
-        const { error } = await supabase.from('majors').delete().eq('id', id);
-        
-        if (error) throw error;
+      const { error } = await supabase
+        .from('majors')
+        .delete()
+        .eq('id', id);
 
+      if (!error) {
         setMajors(majors.filter(m => m.id !== id));
-        if (editingMajor?.id === id) setEditingMajor(null);
-      } catch (error) {
-        console.error('Error deleting major:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    setIsLoading(true);
-    try {
-      // Data yang akan disimpan
-      const settingsToSave = [
-        { key: 'title', value: examSettings.title },
-        { key: 'status', value: examSettings.status },
-        { key: 'schoolName', value: examSettings.schoolName }
-      ];
-
-      console.log('Menyimpan pengaturan:', settingsToSave);
-
-      // Gunakan loop untuk menyimpan satu per satu agar lebih stabil jika bulk upsert bermasalah
-      for (const item of settingsToSave) {
-        const { error } = await supabase
-          .from('settings')
-          .upsert(item, { onConflict: 'key' });
         
-        if (error) {
-          console.error(`Gagal menyimpan key: ${item.key}`, error);
-          throw error;
-        }
-      }
+        // Update local exams state
+        const updatedExams = exams.map(ex => ({
+          ...ex,
+          enrolledMajorIds: ex.enrolledMajorIds.filter(mId => mId !== id)
+        }));
+        setExams(updatedExams);
 
-      setIsSaved(true);
-      setTimeout(() => setIsSaved(false), 2000);
-    } catch (error: any) {
-      console.error('Error detail:', error);
-      const errorMsg = error.message || error.details || 'Terjadi kesalahan koneksi';
-      alert(`Gagal Update Pengaturan!\n\nError: ${errorMsg}\n\nSaran: Pastikan tabel 'settings' sudah dibuat di Supabase dengan kolom 'key' (Primary Key) dan 'value'.`);
-    } finally {
+        // Update exams in Supabase (remove the major ID from all exams)
+        // This is a bit complex for a single call, so we'll just update the ones that were affected
+        const affectedExams = exams.filter(ex => ex.enrolledMajorIds.includes(id));
+        for (const ex of affectedExams) {
+          await supabase
+            .from('exams')
+            .update({ enrolled_major_ids: ex.enrolledMajorIds.filter(mId => mId !== id) })
+            .eq('id', ex.id);
+        }
+
+        if (editingMajor?.id === id) setEditingMajor(null);
+      } else {
+        console.error("Error deleting major:", error);
+      }
       setIsLoading(false);
     }
   };
 
-  const handleAddExam = () => {
-    if (!editingMajor) return;
+  const handleAddExam = async () => {
+    const newId = `exam-${Date.now()}`;
     const newExam: Exam = {
-      id: `exam-${Date.now()}`,
-      subject: "",
-      link: "",
-      token: "",
-      duration: "90"
+      id: newId,
+      subject: "Mata Pelajaran Baru",
+      link: "https://forms.google.com",
+      token: "TOKEN123",
+      duration: "90",
+      enrolledMajorIds: editingMajor ? [editingMajor.id] : []
     };
-    setEditingExam(newExam);
-    setIsExamModalOpen(true);
-  };
 
-  const handleEditExam = (exam: Exam) => {
-    setEditingExam({ ...exam });
-    setIsExamModalOpen(true);
-  };
+    setIsLoading(true);
+    const { error } = await supabase
+      .from('exams')
+      .insert([{
+        id: newExam.id,
+        subject: newExam.subject,
+        link: newExam.link,
+        token: newExam.token,
+        duration: newExam.duration,
+        enrolled_major_ids: newExam.enrolledMajorIds
+      }]);
 
-  const handleSaveExamModal = () => {
-    if (!editingMajor || !editingExam) return;
-    
-    const examExists = editingMajor.exams.find(e => e.id === editingExam.id);
-    let updatedExams;
-    
-    if (examExists) {
-      updatedExams = editingMajor.exams.map(e => e.id === editingExam.id ? editingExam : e);
+    if (!error) {
+      setExams([...exams, newExam]);
+      setEditingExam(newExam);
     } else {
-      updatedExams = [...editingMajor.exams, editingExam];
+      console.error("Error adding exam:", error);
     }
-    
-    setEditingMajor({ ...editingMajor, exams: updatedExams });
-    setSuccessMessage(examExists ? "Mata ujian diperbarui!" : "Mata ujian ditambahkan!");
-    setIsExamModalOpen(false);
-    setEditingExam(null);
-    setTimeout(() => setSuccessMessage(""), 3000);
+    setIsLoading(false);
   };
 
-  const handleDeleteExam = (examId: string) => {
-    if (!editingMajor) return;
+  const handleDeleteExam = async (examId: string) => {
     if (confirm("Hapus mata ujian ini?")) {
-      const updatedMajor = { ...editingMajor, exams: editingMajor.exams.filter(e => e.id !== examId) };
-      setEditingMajor(updatedMajor);
-      if (editingExam?.id === examId) setEditingExam(null);
+      setIsLoading(true);
+      const { error } = await supabase
+        .from('exams')
+        .delete()
+        .eq('id', examId);
+
+      if (!error) {
+        setExams(exams.filter(e => e.id !== examId));
+        if (editingExam?.id === examId) setEditingExam(null);
+      } else {
+        console.error("Error deleting exam:", error);
+      }
+      setIsLoading(false);
     }
+  };
+
+  const toggleMajorEnrollment = (majorId: string) => {
+    if (!editingExam) return;
+    
+    const isEnrolled = editingExam.enrolledMajorIds.includes(majorId);
+    const newEnrolledIds = isEnrolled
+      ? editingExam.enrolledMajorIds.filter(id => id !== majorId)
+      : [...editingExam.enrolledMajorIds, majorId];
+      
+    setEditingExam({ ...editingExam, enrolledMajorIds: newEnrolledIds });
+  };
+
+  const handleSaveSettings = async () => {
+    setIsLoading(true);
+    const { error } = await supabase
+      .from('settings')
+      .upsert({
+        id: 'global', // Use a fixed ID for global settings
+        title: examSettings.title,
+        status: examSettings.status,
+        school_name: examSettings.schoolName
+      });
+
+    if (!error) {
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2000);
+    } else {
+      console.error("Error saving settings:", error);
+    }
+    setIsLoading(false);
   };
 
   const handleAdminLogin = (e: React.FormEvent) => {
@@ -473,15 +412,7 @@ export default function App() {
               <div className="bg-blue-600 p-1.5 rounded-lg">
                 <LayoutDashboard className="w-5 h-5 text-white" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight leading-none">ADMIN PANEL US 2026</h1>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <div className={`w-2 h-2 rounded-full ${dbStatus.connected ? 'bg-green-500' : 'bg-red-500'}`} />
-                  <p className="text-[10px] text-gray-400 font-mono uppercase">
-                    DB: {dbStatus.connected ? 'CONNECTED' : 'DISCONNECTED'}
-                  </p>
-                </div>
-              </div>
+              <h1 className="text-lg font-bold tracking-tight">ADMIN PANEL US 2026</h1>
             </div>
             <Button 
               variant="ghost" 
@@ -501,6 +432,38 @@ export default function App() {
         </header>
 
         <main className="flex-grow container mx-auto px-4 py-8 max-w-6xl">
+          <Dialog open={isAddMajorDialogOpen} onOpenChange={setIsAddMajorDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Tambah Jurusan Baru</DialogTitle>
+                <DialogDescription>
+                  Masukkan nama jurusan baru yang ingin Anda tambahkan ke sistem.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4">
+                <Label htmlFor="new-major-name">Nama Jurusan</Label>
+                <Input
+                  id="new-major-name"
+                  placeholder="Contoh: Teknik Mesin"
+                  value={newMajorName}
+                  onChange={(e) => setNewMajorName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") confirmAddMajor();
+                  }}
+                  autoFocus
+                />
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddMajorDialogOpen(false)}>
+                  Batal
+                </Button>
+                <Button onClick={confirmAddMajor} disabled={!newMajorName.trim()}>
+                  Tambah Jurusan
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <div className="flex flex-col md:flex-row gap-8">
             {/* Sidebar Navigation */}
             <aside className="w-full md:w-64 space-y-1">
@@ -529,56 +492,37 @@ export default function App() {
             </aside>
 
             {/* Content Area */}
-            <div className="flex-grow relative">
-              <AnimatePresence>
-                {successMessage && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className="absolute top-0 left-1/2 -translate-x-1/2 z-40 bg-green-500 text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 text-sm font-bold"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    {successMessage}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
+            <div className="flex-grow">
               {adminTab === "majors" && (
                 <div className="space-y-6">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-bold text-gray-800">Manajemen Jurusan</h2>
-                    <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="w-full sm:w-auto">
-                      <Button onClick={handleAddMajor} className="w-full bg-blue-600 hover:bg-blue-700 gap-2 shadow-lg shadow-blue-200">
-                        <Plus className="w-4 h-4" /> Tambah Jurusan Baru
-                      </Button>
-                    </motion.div>
+                    <Button onClick={handleAddMajor} className="bg-blue-600 hover:bg-blue-700 gap-2">
+                      <Plus className="w-4 h-4" /> Tambah Jurusan
+                    </Button>
                   </div>
                   
                   <div className="grid gap-4">
                     {majors.map(major => (
                       <Card key={major.id} className="hover:shadow-md transition-shadow">
-                        <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <CardContent className="p-4 flex items-center justify-between">
                           <div className="flex items-center gap-4">
-                            <div className="bg-blue-100 p-2 rounded-lg shrink-0">
+                            <div className="bg-blue-100 p-2 rounded-lg">
                               <GraduationCap className="w-5 h-5 text-blue-600" />
                             </div>
                             <div>
-                              <h3 className="font-bold text-gray-800 break-words">{major.name}</h3>
-                              <p className="text-xs text-gray-500 uppercase font-mono">{major.id} &bull; {major.exams.length} Mata Ujian</p>
+                              <h3 className="font-bold text-gray-800">{major.name}</h3>
+                              <p className="text-xs text-gray-500 uppercase font-mono">{major.id} &bull; {exams.filter(ex => ex.enrolledMajorIds.includes(major.id)).length} Mata Ujian</p>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                            <Button variant="outline" size="sm" className="flex-grow sm:flex-grow-0" onClick={() => {
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => {
                               setEditingMajor(major);
                               setAdminTab("exams");
                             }}>
                               Kelola Soal
                             </Button>
-                            <Button variant="ghost" size="icon" className="text-blue-600 hover:bg-blue-50 shrink-0" onClick={() => handleEditMajorName(major)}>
-                              <Edit2 className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0" onClick={() => handleDeleteMajor(major.id)}>
+                            <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleDeleteMajor(major.id)}>
                               <Trash2 className="w-4 h-4" />
                             </Button>
                           </div>
@@ -591,392 +535,164 @@ export default function App() {
 
               {adminTab === "exams" && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-gray-800">Manajemen Soal</h2>
-                    {editingMajor && (
-                      <div className="flex gap-2">
-                        <Button variant="outline" onClick={handleSaveMajor} disabled={isLoading}>
-                          {isLoading ? "Menyimpan..." : "Simpan Semua Perubahan"}
-                        </Button>
-                        <Button onClick={handleAddExam} className="bg-blue-600 hover:bg-blue-700 gap-2">
-                          <Plus className="w-4 h-4" /> Tambah Mata Ujian
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="md:col-span-1 space-y-2">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase px-2">Pilih Jurusan</p>
-                      <div className="space-y-1">
-                        {majors.map(m => (
-                          <Button 
-                            key={m.id}
-                            variant={editingMajor?.id === m.id ? "secondary" : "ghost"}
-                            onClick={() => {
-                              setEditingMajor(m);
-                              setEditingExam(null);
-                            }}
-                            className={`w-full justify-start text-sm ${editingMajor?.id === m.id ? "bg-blue-50 text-blue-700 font-bold" : ""}`}
-                          >
-                            {m.name}
+                  <h2 className="text-2xl font-bold text-gray-800">Manajemen Soal</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="md:col-span-1 space-y-4">
+                      <div>
+                        <div className="flex items-center justify-between px-2 mb-2">
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">Daftar Soal</p>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 text-blue-600" onClick={handleAddExam}>
+                            <Plus className="w-4 h-4" />
                           </Button>
-                        ))}
+                        </div>
+                        <div className="space-y-1">
+                          {exams.map(e => (
+                            <div key={e.id} className="flex items-center gap-1 group">
+                              <Button 
+                                variant={editingExam?.id === e.id ? "secondary" : "ghost"}
+                                onClick={() => setEditingExam(e)}
+                                className={`flex-grow justify-start text-xs h-9 ${editingExam?.id === e.id ? "bg-blue-100 text-blue-800" : ""}`}
+                              >
+                                {e.subject}
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => handleDeleteExam(e.id)}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          ))}
+                          {exams.length === 0 && (
+                            <p className="text-[10px] text-gray-400 text-center py-4 italic">Belum ada soal</p>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="md:col-span-3">
-                      {editingMajor ? (
-                        <div className="space-y-4">
-                          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
-                            <div>
-                              <p className="text-xs text-blue-600 font-bold uppercase tracking-wider">Jurusan Terpilih</p>
-                              <h3 className="text-xl font-bold text-gray-800">{editingMajor.name}</h3>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-xs text-gray-500 font-mono">{editingMajor.exams.length} Mata Ujian Terdaftar</p>
-                            </div>
-                          </div>
+                    <div className="md:col-span-2">
+                      {editingExam ? (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>Konfigurasi Mata Ujian</CardTitle>
+                            <CardDescription>ID: {editingExam.id}</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <form onSubmit={handleSaveExam} className="space-y-6">
+                              <div className="space-y-4">
+                                <div className="space-y-2">
+                                  <Label>Nama Mata Pelajaran</Label>
+                                  <Input 
+                                    value={editingExam.subject}
+                                    onChange={(e) => setEditingExam({ ...editingExam, subject: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label>Link Google Form / Drive</Label>
+                                  <Input 
+                                    value={editingExam.link}
+                                    onChange={(e) => setEditingExam({ ...editingExam, link: e.target.value })}
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                    <Label>Token Akses</Label>
+                                    <Input 
+                                      className="font-mono uppercase"
+                                      value={editingExam.token}
+                                      onChange={(e) => setEditingExam({ ...editingExam, token: e.target.value })}
+                                    />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Durasi (Menit)</Label>
+                                    <Input 
+                                      type="number"
+                                      value={editingExam.duration}
+                                      onChange={(e) => setEditingExam({ ...editingExam, duration: e.target.value })}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
 
-                          {editingMajor.exams.length > 0 ? (
-                            <div className="grid gap-3">
-                              {editingMajor.exams.map(exam => (
-                                <Card key={exam.id} className="overflow-hidden border-l-4 border-l-blue-500">
-                                  <CardContent className="p-4 flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                      <div className="bg-gray-100 p-2 rounded-lg">
-                                        <FileText className="w-5 h-5 text-gray-600" />
-                                      </div>
-                                      <div>
-                                        <h4 className="font-bold text-gray-800">{exam.subject}</h4>
-                                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                                          <span className="flex items-center gap-1 font-mono bg-gray-100 px-1.5 py-0.5 rounded">Token: {exam.token}</span>
-                                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {exam.duration}m</span>
-                                        </div>
-                                      </div>
+                              <div className="space-y-3 pt-4 border-t">
+                                <Label className="text-blue-700 font-bold flex items-center gap-2">
+                                  <GraduationCap className="w-4 h-4" /> Enrolment Jurusan
+                                </Label>
+                                <p className="text-[10px] text-gray-500 mb-2">Pilih jurusan yang dapat mengakses mata ujian ini</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-gray-50 p-3 rounded-lg border">
+                                  {majors.map(major => (
+                                    <div key={major.id} className="flex items-center space-x-2">
+                                      <Checkbox 
+                                        id={`enroll-${major.id}`} 
+                                        checked={editingExam.enrolledMajorIds.includes(major.id)}
+                                        onCheckedChange={() => toggleMajorEnrollment(major.id)}
+                                      />
+                                      <label
+                                        htmlFor={`enroll-${major.id}`}
+                                        className="text-xs font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                                      >
+                                        {major.name}
+                                      </label>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                      <Button variant="ghost" size="icon" className="text-blue-600 hover:bg-blue-50" onClick={() => handleEditExam(exam)}>
-                                        <Edit2 className="w-4 h-4" />
-                                      </Button>
-                                      <Button variant="ghost" size="icon" className="text-red-500 hover:bg-red-50" onClick={() => handleDeleteExam(exam.id)}>
-                                        <Trash2 className="w-4 h-4" />
-                                      </Button>
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl text-gray-400 bg-white">
-                              <FileText className="w-12 h-12 mb-2 opacity-10" />
-                              <p>Belum ada mata ujian untuk jurusan ini</p>
-                              <Button variant="link" onClick={handleAddExam} className="text-blue-600 mt-2">
-                                Tambah Mata Ujian Pertama
+                                  ))}
+                                </div>
+                              </div>
+
+                              <Button type="submit" className="w-full bg-blue-600" disabled={isLoading}>
+                                {isLoading ? "Menyimpan..." : isSaved ? "Berhasil Disimpan!" : "Simpan Perubahan"}
                               </Button>
-                            </div>
-                          )}
-                        </div>
+                            </form>
+                          </CardContent>
+                        </Card>
                       ) : (
-                        <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed rounded-2xl text-gray-400 bg-white">
-                          <LayoutDashboard className="w-12 h-12 mb-2 opacity-10" />
-                          <p>Pilih jurusan di sebelah kiri untuk mengelola soal</p>
+                        <div className="h-64 flex flex-col items-center justify-center border-2 border-dashed rounded-xl text-gray-400 bg-white">
+                          <FileText className="w-12 h-12 mb-2 opacity-10" />
+                          <p>Pilih atau tambah mata ujian untuk mengedit</p>
                         </div>
                       )}
                     </div>
                   </div>
-
-                  {/* Exam Editor Modal */}
-                   <AnimatePresence>
-                    {isExamModalOpen && editingExam && (
-                      <div 
-                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-                        onClick={() => !isLoading && setIsExamModalOpen(false)}
-                      >
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                          className="w-full max-w-lg"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Card className="shadow-2xl border-t-4 border-t-blue-600">
-                            <CardHeader className="flex flex-row items-center justify-between pb-2">
-                              <div>
-                                <CardTitle>Konfigurasi Mata Ujian</CardTitle>
-                                <CardDescription>Detail soal dan akses ujian</CardDescription>
-                              </div>
-                              <Button variant="ghost" size="icon" onClick={() => setIsExamModalOpen(false)} disabled={isLoading}>
-                                <X className="w-5 h-5" />
-                              </Button>
-                            </CardHeader>
-                            <CardContent className="space-y-4 pt-4">
-                              <div className="space-y-2">
-                                <Label>Nama Mata Pelajaran</Label>
-                                <Input 
-                                  placeholder="Contoh: Matematika Dasar"
-                                  value={editingExam.subject}
-                                  onChange={(e) => setEditingExam({ ...editingExam, subject: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !isLoading) {
-                                      handleSaveExamModal();
-                                    }
-                                  }}
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Link Google Form / Drive</Label>
-                                <Input 
-                                  placeholder="https://forms.gle/..."
-                                  value={editingExam.link}
-                                  onChange={(e) => setEditingExam({ ...editingExam, link: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !isLoading) {
-                                      handleSaveExamModal();
-                                    }
-                                  }}
-                                />
-                              </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label>Token Akses</Label>
-                                  <Input 
-                                    className="font-mono uppercase tracking-widest"
-                                    placeholder="TOKEN123"
-                                    value={editingExam.token}
-                                    onChange={(e) => setEditingExam({ ...editingExam, token: e.target.value.toUpperCase() })}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' && !isLoading) {
-                                        handleSaveExamModal();
-                                      }
-                                    }}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>Durasi (Menit)</Label>
-                                  <Input 
-                                    type="number"
-                                    value={editingExam.duration}
-                                    onChange={(e) => setEditingExam({ ...editingExam, duration: e.target.value })}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' && !isLoading) {
-                                        handleSaveExamModal();
-                                      }
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            </CardContent>
-                            <CardFooter className="flex gap-3 pt-2">
-                              <Button variant="outline" className="flex-grow" onClick={() => setIsExamModalOpen(false)} disabled={isLoading}>
-                                Batal
-                              </Button>
-                              <Button className="flex-grow bg-blue-600 hover:bg-blue-700" onClick={handleSaveExamModal} disabled={isLoading}>
-                                {isLoading ? (
-                                  <div className="flex items-center gap-2">
-                                    <RefreshCcw className="w-4 h-4 animate-spin" />
-                                    Menyimpan...
-                                  </div>
-                                ) : "Simpan Detail"}
-                              </Button>
-                            </CardFooter>
-                          </Card>
-                        </motion.div>
-                      </div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Major Editor Modal */}
-                  <AnimatePresence>
-                    {isMajorModalOpen && majorToEdit && (
-                      <div 
-                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-                        onClick={() => !isLoading && setIsMajorModalOpen(false)}
-                      >
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                          className="w-full max-w-md"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Card className="shadow-2xl border-t-4 border-t-blue-600">
-                            <CardHeader className="flex flex-row items-center justify-between pb-2">
-                              <div>
-                                <CardTitle>{majors.find(m => m.id === majorToEdit.id) ? "Edit Jurusan" : "Tambah Jurusan"}</CardTitle>
-                                <CardDescription>Masukkan nama jurusan baru</CardDescription>
-                              </div>
-                              <Button variant="ghost" size="icon" onClick={() => setIsMajorModalOpen(false)} disabled={isLoading}>
-                                <X className="w-5 h-5" />
-                              </Button>
-                            </CardHeader>
-                            <CardContent className="space-y-4 pt-4">
-                              <div className="space-y-2">
-                                <Label>Nama Jurusan</Label>
-                                <Input 
-                                  placeholder="Contoh: Teknik Komputer & Jaringan"
-                                  value={majorToEdit.name}
-                                  onChange={(e) => setMajorToEdit({ ...majorToEdit, name: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && !isLoading) {
-                                      handleSaveMajorModal();
-                                    }
-                                  }}
-                                  autoFocus
-                                />
-                              </div>
-                            </CardContent>
-                            <CardFooter className="flex gap-3 pt-2">
-                              <Button variant="outline" className="flex-grow" onClick={() => setIsMajorModalOpen(false)} disabled={isLoading}>
-                                Batal
-                              </Button>
-                              <Button className="flex-grow bg-blue-600 hover:bg-blue-700" onClick={handleSaveMajorModal} disabled={isLoading}>
-                                {isLoading ? (
-                                  <div className="flex items-center gap-2">
-                                    <RefreshCcw className="w-4 h-4 animate-spin" />
-                                    Menyimpan...
-                                  </div>
-                                ) : "Simpan Jurusan"}
-                              </Button>
-                            </CardFooter>
-                          </Card>
-                        </motion.div>
-                      </div>
-                    )}
-                  </AnimatePresence>
                 </div>
               )}
 
-               {adminTab === "settings" && (
+              {adminTab === "settings" && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-2xl font-bold text-gray-800">Manajemen Ujian</h2>
-                    <Button variant="outline" size="sm" onClick={fetchData} className="gap-2">
-                      <RefreshCcw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-                      Cek Koneksi DB
-                    </Button>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 space-y-6">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Pengaturan Global</CardTitle>
-                          <CardDescription>Konfigurasi yang muncul di halaman depan siswa</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>Nama Sekolah</Label>
-                              <Input value={examSettings.schoolName} onChange={e => setExamSettings({...examSettings, schoolName: e.target.value})} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Judul Ujian</Label>
-                              <Input value={examSettings.title} onChange={e => setExamSettings({...examSettings, title: e.target.value})} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Status Sistem</Label>
-                              <select 
-                                className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm"
-                                value={examSettings.status}
-                                onChange={e => setExamSettings({...examSettings, status: e.target.value})}
-                              >
-                                <option>Aktif</option>
-                                <option>Maintenance</option>
-                                <option>Selesai</option>
-                              </select>
-                            </div>
-                          </div>
-                          <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleSaveSettings}>
-                            {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
-                          </Button>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-amber-200 bg-amber-50/30">
-                        <CardHeader className="pb-2">
-                          <CardTitle className="text-amber-800 flex items-center gap-2">
-                            <ShieldCheck className="w-5 h-5" />
-                            Setup Database Lengkap
-                          </CardTitle>
-                          <CardDescription className="text-amber-700">
-                            Jalankan SQL ini di Dashboard Supabase untuk membuat semua tabel yang diperlukan.
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="bg-slate-900 text-slate-100 p-4 rounded-lg font-mono text-[10px] overflow-x-auto max-h-[300px] overflow-y-auto">
-                            <pre>{`-- 1. Tabel Jurusan
-CREATE TABLE IF NOT EXISTS majors (
-  id text PRIMARY KEY,
-  name text NOT NULL
-);
-
--- 2. Tabel Mata Ujian
-CREATE TABLE IF NOT EXISTS exams (
-  id text PRIMARY KEY,
-  major_id text REFERENCES majors(id) ON DELETE CASCADE,
-  subject text NOT NULL,
-  link text NOT NULL,
-  token text NOT NULL,
-  duration text NOT NULL
-);
-
--- 3. Tabel Pengaturan
-CREATE TABLE IF NOT EXISTS settings (
-  key text PRIMARY KEY,
-  value text NOT NULL
-);
-
--- Aktifkan RLS (Security)
-ALTER TABLE majors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE settings ENABLE ROW LEVEL SECURITY;
-
--- Kebijakan Akses Publik (PENTING)
-DROP POLICY IF EXISTS "Public Access" ON majors;
-CREATE POLICY "Public Access" ON majors FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Access" ON exams;
-CREATE POLICY "Public Access" ON exams FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Public Access" ON settings;
-CREATE POLICY "Public Access" ON settings FOR ALL USING (true) WITH CHECK (true);`}</pre>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    <div className="space-y-6">
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-sm">Status Tabel Database</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="flex items-center justify-between p-2 rounded bg-gray-50">
-                            <span className="text-xs font-medium">Tabel Jurusan</span>
-                            {dbStatus.majors ? 
-                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">READY</span> : 
-                              <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">MISSING</span>
-                            }
-                          </div>
-                          <div className="flex items-center justify-between p-2 rounded bg-gray-50">
-                            <span className="text-xs font-medium">Tabel Mata Ujian</span>
-                            {dbStatus.exams ? 
-                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">READY</span> : 
-                              <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">MISSING</span>
-                            }
-                          </div>
-                          <div className="flex items-center justify-between p-2 rounded bg-gray-50">
-                            <span className="text-xs font-medium">Tabel Pengaturan</span>
-                            {dbStatus.settings ? 
-                              <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">READY</span> : 
-                              <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold">MISSING</span>
-                            }
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </div>
+                  <h2 className="text-2xl font-bold text-gray-800">Manajemen Ujian</h2>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Pengaturan Global</CardTitle>
+                      <CardDescription>Konfigurasi yang muncul di halaman depan siswa</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Nama Sekolah</Label>
+                          <Input value={examSettings.schoolName} onChange={e => setExamSettings({...examSettings, schoolName: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Judul Ujian</Label>
+                          <Input value={examSettings.title} onChange={e => setExamSettings({...examSettings, title: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Status Sistem</Label>
+                          <select 
+                            className="w-full h-10 px-3 rounded-md border border-gray-200 text-sm"
+                            value={examSettings.status}
+                            onChange={e => setExamSettings({...examSettings, status: e.target.value})}
+                          >
+                            <option>Aktif</option>
+                            <option>Maintenance</option>
+                            <option>Selesai</option>
+                          </select>
+                        </div>
+                      </div>
+                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleSaveSettings}>
+                        {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
+                      </Button>
+                    </CardContent>
+                  </Card>
                 </div>
               )}
             </div>
@@ -1027,12 +743,7 @@ CREATE POLICY "Public Access" ON settings FOR ALL USING (true) WITH CHECK (true)
           transition={{ duration: 0.5 }}
           className="w-full max-w-2xl z-10"
         >
-          {isInitialLoading ? (
-            <div className="flex flex-col items-center justify-center space-y-4 bg-white/80 backdrop-blur-sm p-12 rounded-3xl shadow-xl">
-              <RefreshCcw className="w-12 h-12 text-[#0056b3] animate-spin" />
-              <p className="text-gray-600 font-medium">Memuat Data Ujian...</p>
-            </div>
-          ) : examSettings.status === "Maintenance" ? (
+          {examSettings.status === "Maintenance" ? (
             <Card className="text-center p-12 space-y-4">
               <div className="bg-amber-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto">
                 <AlertCircle className="w-10 h-10 text-amber-500" />
@@ -1083,30 +794,32 @@ CREATE POLICY "Public Access" ON settings FOR ALL USING (true) WITH CHECK (true)
                 </div>
               </div>
               
-              {selectedMajor.exams.length > 0 ? (
+              {exams.filter(ex => ex.enrolledMajorIds.includes(selectedMajor.id)).length > 0 ? (
                 <div className="grid grid-cols-1 gap-3">
-                  {selectedMajor.exams.map((exam) => (
-                    <motion.button
-                      key={exam.id}
-                      whileHover={{ x: 5 }}
-                      onClick={() => setSelectedExam(exam)}
-                      className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-[#0056b3] flex items-center justify-between group hover:shadow-md transition-all"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className="bg-blue-50 p-2 rounded-lg">
-                          <FileText className="w-5 h-5 text-[#0056b3]" />
-                        </div>
-                        <div className="text-left">
-                          <h3 className="font-bold text-gray-800">{exam.subject}</h3>
-                          <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {exam.duration} Menit</span>
-                            <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Token Required</span>
+                  {exams
+                    .filter(ex => ex.enrolledMajorIds.includes(selectedMajor.id))
+                    .map((exam) => (
+                      <motion.button
+                        key={exam.id}
+                        whileHover={{ x: 5 }}
+                        onClick={() => setSelectedExam(exam)}
+                        className="bg-white p-5 rounded-xl shadow-sm border-l-4 border-[#0056b3] flex items-center justify-between group hover:shadow-md transition-all"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="bg-blue-50 p-2 rounded-lg">
+                            <FileText className="w-5 h-5 text-[#0056b3]" />
+                          </div>
+                          <div className="text-left">
+                            <h3 className="font-bold text-gray-800">{exam.subject}</h3>
+                            <div className="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {exam.duration} Menit</span>
+                              <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Token Required</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <ArrowLeft className="w-5 h-5 text-gray-300 rotate-180 group-hover:text-[#0056b3] transition-colors" />
-                    </motion.button>
-                  ))}
+                        <ArrowLeft className="w-5 h-5 text-gray-300 rotate-180 group-hover:text-[#0056b3] transition-colors" />
+                      </motion.button>
+                    ))}
                 </div>
               ) : (
                 <div className="bg-white p-12 rounded-2xl shadow-sm text-center border-2 border-dashed border-gray-200">
