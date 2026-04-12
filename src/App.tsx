@@ -41,6 +41,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { supabase } from "@/lib/supabase";
+import { useEffect } from "react";
 
 interface Exam {
   id: string;
@@ -73,56 +75,70 @@ export default function App() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteConfig, setDeleteConfig] = useState<{ id: string; type: "major" | "exam"; name: string } | null>(null);
 
-  // Initial Majors Data
-  const [majors, setMajors] = useState<Major[]>([
-    { id: "tkj", name: "Teknik Komputer & Jaringan" },
-    { id: "rpl", name: "Rekayasa Perangkat Lunak" },
-    { id: "akl", name: "Akuntansi" },
-    { id: "otkp", name: "Perkantoran" },
-  ]);
-
-  // Initial Exams Data with Enrollment Model
-  const [exams, setExams] = useState<Exam[]>([
-    { 
-      id: "tkj-1", 
-      subject: "Dasar Desain Grafis", 
-      link: "https://forms.google.com", 
-      token: "DDG2026", 
-      duration: "90",
-      enrolledMajorIds: ["tkj"]
-    },
-    { 
-      id: "tkj-2", 
-      subject: "Administrasi Sistem Jaringan", 
-      link: "https://forms.google.com", 
-      token: "ASJ2026", 
-      duration: "120",
-      enrolledMajorIds: ["tkj"]
-    },
-    { 
-      id: "rpl-1", 
-      subject: "Pemrograman Berorientasi Objek", 
-      link: "https://forms.google.com", 
-      token: "PBO2026", 
-      duration: "120",
-      enrolledMajorIds: ["rpl"]
-    },
-    { 
-      id: "rpl-2", 
-      subject: "Basis Data", 
-      link: "https://forms.google.com", 
-      token: "BD2026", 
-      duration: "90",
-      enrolledMajorIds: ["rpl"]
-    }
-  ]);
-
-  // Global Exam Settings
+  // Data States
+  const [majors, setMajors] = useState<Major[]>([]);
+  const [exams, setExams] = useState<Exam[]>([]);
   const [examSettings, setExamSettings] = useState({
     title: "Ujian Sekolah Utama 2026",
     status: "Aktif",
     schoolName: "SMK Negeri Digital"
   });
+
+  // Fetch Data from Supabase
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      // Fetch Settings
+      const { data: settingsData } = await supabase
+        .from('settings')
+        .select('*')
+        .eq('id', 'global')
+        .single();
+      
+      if (settingsData) {
+        setExamSettings({
+          title: settingsData.title,
+          status: settingsData.status,
+          schoolName: settingsData.school_name
+        });
+      }
+
+      // Fetch Majors
+      const { data: majorsData } = await supabase
+        .from('majors')
+        .select('*')
+        .order('name');
+      
+      if (majorsData) {
+        setMajors(majorsData);
+      }
+
+      // Fetch Exams with Enrollments
+      const { data: examsData } = await supabase
+        .from('exams')
+        .select('*, exam_enrollments(major_id)');
+      
+      if (examsData) {
+        const formattedExams: Exam[] = examsData.map(ex => ({
+          id: ex.id,
+          subject: ex.subject,
+          link: ex.link,
+          token: ex.token,
+          duration: ex.duration,
+          enrolledMajorIds: ex.exam_enrollments.map((en: any) => en.major_id)
+        }));
+        setExams(formattedExams);
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -141,17 +157,45 @@ export default function App() {
     }
   };
 
-  const handleSaveExam = (e: React.FormEvent) => {
+  const handleSaveExam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingExam) return;
 
     setIsLoading(true);
-    setTimeout(() => {
-      setExams(prev => prev.map(ex => ex.id === editingExam.id ? editingExam : ex));
-      setIsLoading(false);
+    try {
+      // Update Exam
+      await supabase
+        .from('exams')
+        .upsert({
+          id: editingExam.id,
+          subject: editingExam.subject,
+          link: editingExam.link,
+          token: editingExam.token,
+          duration: editingExam.duration
+        });
+
+      // Update Enrollments: Delete existing and insert new
+      await supabase
+        .from('exam_enrollments')
+        .delete()
+        .eq('exam_id', editingExam.id);
+      
+      if (editingExam.enrolledMajorIds.length > 0) {
+        const enrollments = editingExam.enrolledMajorIds.map(mId => ({
+          exam_id: editingExam.id,
+          major_id: mId
+        }));
+        await supabase.from('exam_enrollments').insert(enrollments);
+      }
+
+      await fetchData();
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    }, 800);
+    } catch (error) {
+      console.error('Error saving exam:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAddMajor = () => {
@@ -159,16 +203,20 @@ export default function App() {
     setIsAddMajorDialogOpen(true);
   };
 
-  const confirmAddMajor = () => {
+  const confirmAddMajor = async () => {
     if (!newMajorName.trim()) return;
-    const newId = `new-${Date.now()}`;
-    const newMajor: Major = {
-      id: newId,
-      name: newMajorName
-    };
-    setMajors([...majors, newMajor]);
-    setEditingMajor(newMajor);
-    setIsAddMajorDialogOpen(false);
+    const newId = `major-${Date.now()}`;
+    
+    setIsLoading(true);
+    try {
+      await supabase.from('majors').insert({ id: newId, name: newMajorName });
+      await fetchData();
+      setIsAddMajorDialogOpen(false);
+    } catch (error) {
+      console.error('Error adding major:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDeleteMajor = (id: string) => {
@@ -178,17 +226,33 @@ export default function App() {
     setIsDeleteDialogOpen(true);
   };
 
-  const handleAddExam = () => {
-    const newExam: Exam = {
-      id: `exam-${Date.now()}`,
+  const handleAddExam = async () => {
+    const newId = `exam-${Date.now()}`;
+    const newExamData = {
+      id: newId,
       subject: "Mata Pelajaran Baru",
       link: "https://forms.google.com",
       token: "TOKEN123",
-      duration: "90",
-      enrolledMajorIds: editingMajor ? [editingMajor.id] : []
+      duration: "90"
     };
-    setExams([...exams, newExam]);
-    setEditingExam(newExam);
+
+    setIsLoading(true);
+    try {
+      await supabase.from('exams').insert(newExamData);
+      if (editingMajor) {
+        await supabase.from('exam_enrollments').insert({
+          exam_id: newId,
+          major_id: editingMajor.id
+        });
+      }
+      await fetchData();
+      const newExam: Exam = { ...newExamData, enrolledMajorIds: editingMajor ? [editingMajor.id] : [] };
+      setEditingExam(newExam);
+    } catch (error) {
+      console.error('Error adding exam:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDeleteExam = (examId: string) => {
@@ -198,23 +262,26 @@ export default function App() {
     setIsDeleteDialogOpen(true);
   };
 
-  const executeDelete = () => {
+  const executeDelete = async () => {
     if (!deleteConfig) return;
 
-    if (deleteConfig.type === "major") {
-      setMajors(majors.filter(m => m.id !== deleteConfig.id));
-      setExams(exams.map(ex => ({
-        ...ex,
-        enrolledMajorIds: ex.enrolledMajorIds.filter(mId => mId !== deleteConfig.id)
-      })));
-      if (editingMajor?.id === deleteConfig.id) setEditingMajor(null);
-    } else {
-      setExams(exams.filter(e => e.id !== deleteConfig.id));
-      if (editingExam?.id === deleteConfig.id) setEditingExam(null);
+    setIsLoading(true);
+    try {
+      if (deleteConfig.type === "major") {
+        await supabase.from('majors').delete().eq('id', deleteConfig.id);
+        if (editingMajor?.id === deleteConfig.id) setEditingMajor(null);
+      } else {
+        await supabase.from('exams').delete().eq('id', deleteConfig.id);
+        if (editingExam?.id === deleteConfig.id) setEditingExam(null);
+      }
+      await fetchData();
+    } catch (error) {
+      console.error('Error deleting:', error);
+    } finally {
+      setIsLoading(false);
+      setIsDeleteDialogOpen(false);
+      setDeleteConfig(null);
     }
-
-    setIsDeleteDialogOpen(false);
-    setDeleteConfig(null);
   };
 
   const toggleMajorEnrollment = (majorId: string) => {
@@ -616,13 +683,24 @@ export default function App() {
                           </select>
                         </div>
                       </div>
-                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={() => {
+                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={async () => {
                         setIsLoading(true);
-                        setTimeout(() => {
-                          setIsLoading(false);
+                        try {
+                          await supabase
+                            .from('settings')
+                            .upsert({
+                              id: 'global',
+                              title: examSettings.title,
+                              school_name: examSettings.schoolName,
+                              status: examSettings.status
+                            });
                           setIsSaved(true);
                           setTimeout(() => setIsSaved(false), 2000);
-                        }, 500);
+                        } catch (error) {
+                          console.error('Error saving settings:', error);
+                        } finally {
+                          setIsLoading(false);
+                        }
                       }}>
                         {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
                       </Button>
