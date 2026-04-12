@@ -70,6 +70,8 @@ export default function App() {
   const [isSaved, setIsSaved] = useState(false);
   const [isAddMajorDialogOpen, setIsAddMajorDialogOpen] = useState(false);
   const [newMajorName, setNewMajorName] = useState("");
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteConfig, setDeleteConfig] = useState<{ id: string; type: "major" | "exam"; name: string } | null>(null);
 
   // Initial Majors Data
   const [majors, setMajors] = useState<Major[]>([
@@ -170,15 +172,10 @@ export default function App() {
   };
 
   const handleDeleteMajor = (id: string) => {
-    if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
-      setMajors(majors.filter(m => m.id !== id));
-      // Also remove this major from all exams
-      setExams(exams.map(ex => ({
-        ...ex,
-        enrolledMajorIds: ex.enrolledMajorIds.filter(mId => mId !== id)
-      })));
-      if (editingMajor?.id === id) setEditingMajor(null);
-    }
+    const major = majors.find(m => m.id === id);
+    if (!major) return;
+    setDeleteConfig({ id, type: "major", name: major.name });
+    setIsDeleteDialogOpen(true);
   };
 
   const handleAddExam = () => {
@@ -195,10 +192,29 @@ export default function App() {
   };
 
   const handleDeleteExam = (examId: string) => {
-    if (confirm("Hapus mata ujian ini?")) {
-      setExams(exams.filter(e => e.id !== examId));
-      if (editingExam?.id === examId) setEditingExam(null);
+    const exam = exams.find(e => e.id === examId);
+    if (!exam) return;
+    setDeleteConfig({ id: examId, type: "exam", name: exam.subject });
+    setIsDeleteDialogOpen(true);
+  };
+
+  const executeDelete = () => {
+    if (!deleteConfig) return;
+
+    if (deleteConfig.type === "major") {
+      setMajors(majors.filter(m => m.id !== deleteConfig.id));
+      setExams(exams.map(ex => ({
+        ...ex,
+        enrolledMajorIds: ex.enrolledMajorIds.filter(mId => mId !== deleteConfig.id)
+      })));
+      if (editingMajor?.id === deleteConfig.id) setEditingMajor(null);
+    } else {
+      setExams(exams.filter(e => e.id !== deleteConfig.id));
+      if (editingExam?.id === deleteConfig.id) setEditingExam(null);
     }
+
+    setIsDeleteDialogOpen(false);
+    setDeleteConfig(null);
   };
 
   const toggleMajorEnrollment = (majorId: string) => {
@@ -350,6 +366,27 @@ export default function App() {
                 </Button>
                 <Button onClick={confirmAddMajor} disabled={!newMajorName.trim()}>
                   Tambah Jurusan
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle className="text-red-600 flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5" /> Konfirmasi Hapus
+                </DialogTitle>
+                <DialogDescription>
+                  Apakah Anda yakin ingin menghapus {deleteConfig?.type === "major" ? "jurusan" : "mata ujian"} <strong>{deleteConfig?.name}</strong>? Tindakan ini tidak dapat dibatalkan.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+                  Batal
+                </Button>
+                <Button variant="destructive" onClick={executeDelete}>
+                  Hapus Sekarang
                 </Button>
               </DialogFooter>
             </DialogContent>
