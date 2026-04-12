@@ -74,6 +74,7 @@ export default function App() {
   const [newMajorName, setNewMajorName] = useState("");
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [deleteConfig, setDeleteConfig] = useState<{ id: string; type: "major" | "exam"; name: string } | null>(null);
+  const [isConfigMissing, setIsConfigMissing] = useState(false);
 
   // Data States
   const [majors, setMajors] = useState<Major[]>([]);
@@ -86,7 +87,33 @@ export default function App() {
 
   // Fetch Data from Supabase
   useEffect(() => {
-    fetchData();
+    const checkConfig = () => {
+      const url = import.meta.env.VITE_SUPABASE_URL;
+      const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      if (!url || !key || url.includes('placeholder')) {
+        setIsConfigMissing(true);
+        return false;
+      }
+      return true;
+    };
+
+    const testConnection = async () => {
+      if (!checkConfig()) return;
+      try {
+        const { error } = await supabase.from('settings').select('id').limit(1);
+        if (error) throw error;
+        console.log("Supabase connection successful");
+        setIsConfigMissing(false);
+      } catch (error) {
+        console.error("Supabase connection failed:", error);
+        // If it's a fetch error, it might be an invalid URL
+        if (error instanceof TypeError && error.message === 'Failed to fetch') {
+          setIsConfigMissing(true);
+        }
+      }
+    };
+    testConnection();
+    if (checkConfig()) fetchData();
   }, []);
 
   const fetchData = async () => {
@@ -209,11 +236,13 @@ export default function App() {
     
     setIsLoading(true);
     try {
-      await supabase.from('majors').insert({ id: newId, name: newMajorName });
+      const { error } = await supabase.from('majors').insert({ id: newId, name: newMajorName });
+      if (error) throw error;
       await fetchData();
       setIsAddMajorDialogOpen(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding major:', error);
+      alert(`Gagal menambah jurusan: ${error.message || 'Unknown error'}. Pastikan tabel 'majors' sudah dibuat.`);
     } finally {
       setIsLoading(false);
     }
@@ -238,18 +267,22 @@ export default function App() {
 
     setIsLoading(true);
     try {
-      await supabase.from('exams').insert(newExamData);
+      const { error: examError } = await supabase.from('exams').insert(newExamData);
+      if (examError) throw examError;
+
       if (editingMajor) {
-        await supabase.from('exam_enrollments').insert({
+        const { error: enrollError } = await supabase.from('exam_enrollments').insert({
           exam_id: newId,
           major_id: editingMajor.id
         });
+        if (enrollError) throw enrollError;
       }
       await fetchData();
       const newExam: Exam = { ...newExamData, enrolledMajorIds: editingMajor ? [editingMajor.id] : [] };
       setEditingExam(newExam);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding exam:', error);
+      alert(`Gagal menambah soal: ${error.message || 'Unknown error'}. Pastikan tabel 'exams' dan 'exam_enrollments' sudah dibuat.`);
     } finally {
       setIsLoading(false);
     }
@@ -304,6 +337,43 @@ export default function App() {
       setAdminLoginError(true);
     }
   };
+
+  if (isConfigMissing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans text-center">
+        <Card className="max-w-md w-full border-t-4 border-t-amber-500 shadow-xl">
+          <CardHeader>
+            <div className="mx-auto bg-amber-100 w-16 h-16 rounded-full flex items-center justify-center mb-2">
+              <Settings className="w-8 h-8 text-amber-600" />
+            </div>
+            <CardTitle>Konfigurasi Diperlukan</CardTitle>
+            <CardDescription>Supabase belum terhubung dengan benar</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Aplikasi memerlukan <strong>Supabase URL</strong> dan <strong>Anon Key</strong> untuk berfungsi. 
+              Silakan masukkan variabel berikut di menu <strong>Settings &gt; Secrets</strong> di AI Studio:
+            </p>
+            <div className="bg-slate-100 p-3 rounded text-left font-mono text-xs space-y-2 overflow-x-auto">
+              <p className="text-blue-700">VITE_SUPABASE_URL</p>
+              <p className="text-blue-700">VITE_SUPABASE_ANON_KEY</p>
+            </div>
+            <div className="text-xs text-amber-700 bg-amber-50 p-3 rounded border border-amber-100">
+              <p className="font-bold mb-1 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" /> Tips:
+              </p>
+              <p>Pastikan URL diawali dengan <code>https://</code> dan tidak ada spasi tambahan.</p>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button className="w-full bg-slate-800" onClick={() => window.location.reload()}>
+              Refresh Halaman
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
 
   if (isAdminView) {
     if (!isAdminAuthenticated) {
