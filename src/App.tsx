@@ -70,6 +70,7 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
   const [isAddMajorDialogOpen, setIsAddMajorDialogOpen] = useState(false);
   const [newMajorName, setNewMajorName] = useState("");
 
@@ -91,6 +92,7 @@ export default function App() {
     const fetchData = async () => {
       try {
         setIsInitialLoading(true);
+        setDbError(null);
         
         // Fetch Majors
         const { data: majorsData, error: majorsError } = await supabase
@@ -101,7 +103,6 @@ export default function App() {
         if (majorsData && majorsData.length > 0) {
           setMajors(majorsData);
         } else {
-          // Fallback initial data if table is empty
           const initialMajors = [
             { id: "tkj", name: "Teknik Komputer & Jaringan" },
             { id: "rpl", name: "Rekayasa Perangkat Lunak" },
@@ -120,7 +121,6 @@ export default function App() {
         if (examsData && examsData.length > 0) {
           setExams(examsData);
         } else {
-          // Fallback initial data
           const initialExams = [
             { id: "tkj-1", subject: "Dasar Desain Grafis", link: "https://forms.google.com", token: "DDG2026", duration: "90", enrolledMajorIds: ["tkj"] },
             { id: "tkj-2", subject: "Administrasi Sistem Jaringan", link: "https://forms.google.com", token: "ASJ2026", duration: "120", enrolledMajorIds: ["tkj"] },
@@ -140,8 +140,9 @@ export default function App() {
         if (settingsData) {
           setExamSettings(settingsData);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error fetching data from Supabase:', error);
+        setDbError(error.message || 'Gagal terhubung ke database. Pastikan tabel sudah dibuat di Supabase.');
       } finally {
         setIsInitialLoading(false);
       }
@@ -738,6 +739,27 @@ export default function App() {
               <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
               <p className="text-blue-600 font-bold animate-pulse">Memuat Data Sistem...</p>
             </div>
+          </div>
+        )}
+
+        {dbError && (
+          <div className="fixed bottom-4 right-4 z-[100] max-w-md">
+            <Card className="border-red-200 bg-red-50 shadow-lg">
+              <CardHeader className="py-3">
+                <div className="flex items-center gap-2 text-red-600">
+                  <AlertCircle className="w-5 h-5" />
+                  <CardTitle className="text-sm">Database Error</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="py-2">
+                <p className="text-xs text-red-500 font-mono break-all">{dbError}</p>
+              </CardContent>
+              <CardFooter className="py-2">
+                <Button variant="outline" size="sm" className="w-full text-xs h-8" onClick={() => window.location.reload()}>
+                  Coba Lagi
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
         )}
         {/* Background Decoration */}
