@@ -41,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { supabase } from "@/src/lib/supabase";
 
 interface Exam {
   id: string;
@@ -68,52 +69,15 @@ export default function App() {
   const [tokenError, setTokenError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isAddMajorDialogOpen, setIsAddMajorDialogOpen] = useState(false);
   const [newMajorName, setNewMajorName] = useState("");
 
-  // Initial Majors Data
-  const [majors, setMajors] = useState<Major[]>([
-    { id: "tkj", name: "Teknik Komputer & Jaringan" },
-    { id: "rpl", name: "Rekayasa Perangkat Lunak" },
-    { id: "akl", name: "Akuntansi" },
-    { id: "otkp", name: "Perkantoran" },
-  ]);
+  // Majors Data
+  const [majors, setMajors] = useState<Major[]>([]);
 
-  // Initial Exams Data with Enrollment Model
-  const [exams, setExams] = useState<Exam[]>([
-    { 
-      id: "tkj-1", 
-      subject: "Dasar Desain Grafis", 
-      link: "https://forms.google.com", 
-      token: "DDG2026", 
-      duration: "90",
-      enrolledMajorIds: ["tkj"]
-    },
-    { 
-      id: "tkj-2", 
-      subject: "Administrasi Sistem Jaringan", 
-      link: "https://forms.google.com", 
-      token: "ASJ2026", 
-      duration: "120",
-      enrolledMajorIds: ["tkj"]
-    },
-    { 
-      id: "rpl-1", 
-      subject: "Pemrograman Berorientasi Objek", 
-      link: "https://forms.google.com", 
-      token: "PBO2026", 
-      duration: "120",
-      enrolledMajorIds: ["rpl"]
-    },
-    { 
-      id: "rpl-2", 
-      subject: "Basis Data", 
-      link: "https://forms.google.com", 
-      token: "BD2026", 
-      duration: "90",
-      enrolledMajorIds: ["rpl"]
-    }
-  ]);
+  // Exams Data
+  const [exams, setExams] = useState<Exam[]>([]);
 
   // Global Exam Settings
   const [examSettings, setExamSettings] = useState({
@@ -121,6 +85,70 @@ export default function App() {
     status: "Aktif",
     schoolName: "SMK Negeri Digital"
   });
+
+  // Fetch data from Supabase
+  React.useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsInitialLoading(true);
+        
+        // Fetch Majors
+        const { data: majorsData, error: majorsError } = await supabase
+          .from('majors')
+          .select('*');
+        
+        if (majorsError) throw majorsError;
+        if (majorsData && majorsData.length > 0) {
+          setMajors(majorsData);
+        } else {
+          // Fallback initial data if table is empty
+          const initialMajors = [
+            { id: "tkj", name: "Teknik Komputer & Jaringan" },
+            { id: "rpl", name: "Rekayasa Perangkat Lunak" },
+            { id: "akl", name: "Akuntansi" },
+            { id: "otkp", name: "Perkantoran" },
+          ];
+          setMajors(initialMajors);
+        }
+
+        // Fetch Exams
+        const { data: examsData, error: examsError } = await supabase
+          .from('exams')
+          .select('*');
+        
+        if (examsError) throw examsError;
+        if (examsData && examsData.length > 0) {
+          setExams(examsData);
+        } else {
+          // Fallback initial data
+          const initialExams = [
+            { id: "tkj-1", subject: "Dasar Desain Grafis", link: "https://forms.google.com", token: "DDG2026", duration: "90", enrolledMajorIds: ["tkj"] },
+            { id: "tkj-2", subject: "Administrasi Sistem Jaringan", link: "https://forms.google.com", token: "ASJ2026", duration: "120", enrolledMajorIds: ["tkj"] },
+            { id: "rpl-1", subject: "Pemrograman Berorientasi Objek", link: "https://forms.google.com", token: "PBO2026", duration: "120", enrolledMajorIds: ["rpl"] },
+            { id: "rpl-2", subject: "Basis Data", link: "https://forms.google.com", token: "BD2026", duration: "90", enrolledMajorIds: ["rpl"] }
+          ];
+          setExams(initialExams);
+        }
+
+        // Fetch Settings
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('settings')
+          .select('*')
+          .single();
+        
+        if (settingsError && settingsError.code !== 'PGRST116') throw settingsError;
+        if (settingsData) {
+          setExamSettings(settingsData);
+        }
+      } catch (error) {
+        console.error('Error fetching data from Supabase:', error);
+      } finally {
+        setIsInitialLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   const [editingMajor, setEditingMajor] = useState<Major | null>(null);
   const [editingExam, setEditingExam] = useState<Exam | null>(null);
@@ -139,17 +167,26 @@ export default function App() {
     }
   };
 
-  const handleSaveExam = (e: React.FormEvent) => {
+  const handleSaveExam = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingExam) return;
 
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      const { error } = await supabase
+        .from('exams')
+        .upsert(editingExam);
+      
+      if (error) throw error;
+
       setExams(prev => prev.map(ex => ex.id === editingExam.id ? editingExam : ex));
-      setIsLoading(false);
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    }, 800);
+    } catch (error) {
+      console.error('Error saving exam to Supabase:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAddMajor = () => {
@@ -157,31 +194,66 @@ export default function App() {
     setIsAddMajorDialogOpen(true);
   };
 
-  const confirmAddMajor = () => {
+  const confirmAddMajor = async () => {
     if (!newMajorName.trim()) return;
     const newId = `new-${Date.now()}`;
     const newMajor: Major = {
       id: newId,
       name: newMajorName
     };
-    setMajors([...majors, newMajor]);
-    setEditingMajor(newMajor);
-    setIsAddMajorDialogOpen(false);
-  };
 
-  const handleDeleteMajor = (id: string) => {
-    if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
-      setMajors(majors.filter(m => m.id !== id));
-      // Also remove this major from all exams
-      setExams(exams.map(ex => ({
-        ...ex,
-        enrolledMajorIds: ex.enrolledMajorIds.filter(mId => mId !== id)
-      })));
-      if (editingMajor?.id === id) setEditingMajor(null);
+    try {
+      const { error } = await supabase
+        .from('majors')
+        .insert(newMajor);
+      
+      if (error) throw error;
+
+      setMajors([...majors, newMajor]);
+      setEditingMajor(newMajor);
+      setIsAddMajorDialogOpen(false);
+    } catch (error) {
+      console.error('Error adding major to Supabase:', error);
     }
   };
 
-  const handleAddExam = () => {
+  const handleDeleteMajor = async (id: string) => {
+    if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
+      try {
+        const { error: majorError } = await supabase
+          .from('majors')
+          .delete()
+          .eq('id', id);
+        
+        if (majorError) throw majorError;
+
+        setMajors(majors.filter(m => m.id !== id));
+        
+        // Update local exams state
+        const updatedExams = exams.map(ex => ({
+          ...ex,
+          enrolledMajorIds: ex.enrolledMajorIds.filter(mId => mId !== id)
+        }));
+        setExams(updatedExams);
+
+        // Update exams in Supabase (remove major from enrollment)
+        for (const exam of exams) {
+          if (exam.enrolledMajorIds.includes(id)) {
+            await supabase
+              .from('exams')
+              .update({ enrolledMajorIds: exam.enrolledMajorIds.filter(mId => mId !== id) })
+              .eq('id', exam.id);
+          }
+        }
+
+        if (editingMajor?.id === id) setEditingMajor(null);
+      } catch (error) {
+        console.error('Error deleting major from Supabase:', error);
+      }
+    }
+  };
+
+  const handleAddExam = async () => {
     const newExam: Exam = {
       id: `exam-${Date.now()}`,
       subject: "Mata Pelajaran Baru",
@@ -190,14 +262,36 @@ export default function App() {
       duration: "90",
       enrolledMajorIds: editingMajor ? [editingMajor.id] : []
     };
-    setExams([...exams, newExam]);
-    setEditingExam(newExam);
+
+    try {
+      const { error } = await supabase
+        .from('exams')
+        .insert(newExam);
+      
+      if (error) throw error;
+
+      setExams([...exams, newExam]);
+      setEditingExam(newExam);
+    } catch (error) {
+      console.error('Error adding exam to Supabase:', error);
+    }
   };
 
-  const handleDeleteExam = (examId: string) => {
+  const handleDeleteExam = async (examId: string) => {
     if (confirm("Hapus mata ujian ini?")) {
-      setExams(exams.filter(e => e.id !== examId));
-      if (editingExam?.id === examId) setEditingExam(null);
+      try {
+        const { error } = await supabase
+          .from('exams')
+          .delete()
+          .eq('id', examId);
+        
+        if (error) throw error;
+
+        setExams(exams.filter(e => e.id !== examId));
+        if (editingExam?.id === examId) setEditingExam(null);
+      } catch (error) {
+        console.error('Error deleting exam from Supabase:', error);
+      }
     }
   };
 
@@ -579,13 +673,22 @@ export default function App() {
                           </select>
                         </div>
                       </div>
-                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={() => {
+                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={async () => {
                         setIsLoading(true);
-                        setTimeout(() => {
-                          setIsLoading(false);
+                        try {
+                          const { error } = await supabase
+                            .from('settings')
+                            .upsert({ id: 'global', ...examSettings });
+                          
+                          if (error) throw error;
+
                           setIsSaved(true);
                           setTimeout(() => setIsSaved(false), 2000);
-                        }, 500);
+                        } catch (error) {
+                          console.error('Error saving settings to Supabase:', error);
+                        } finally {
+                          setIsLoading(false);
+                        }
                       }}>
                         {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
                       </Button>
@@ -629,6 +732,14 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-grow flex items-center justify-center p-4 relative overflow-hidden">
+        {isInitialLoading && (
+          <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-[100] flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-blue-600 font-bold animate-pulse">Memuat Data Sistem...</p>
+            </div>
+          </div>
+        )}
         {/* Background Decoration */}
         <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none">
           <div className="absolute top-10 left-10 w-64 h-64 bg-blue-500 rounded-full blur-3xl" />
