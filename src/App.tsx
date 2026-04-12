@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, Component } from "react";
 import { motion } from "motion/react";
 import { 
   User, 
@@ -33,6 +33,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import {
   Dialog,
   DialogContent,
@@ -41,7 +42,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { supabase } from "@/src/lib/supabase";
 
 interface Exam {
   id: string;
@@ -57,7 +57,71 @@ interface Major {
   name: string;
 }
 
+// Error Boundary Component
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
+          <Card className="w-full max-w-md border-red-200 shadow-xl">
+            <CardHeader className="text-center">
+              <div className="mx-auto bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mb-2">
+                <AlertCircle className="w-8 h-8 text-red-600" />
+              </div>
+              <CardTitle className="text-2xl text-red-700">Terjadi Kesalahan</CardTitle>
+              <CardDescription>Aplikasi mengalami masalah saat memuat data.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-red-50 p-3 rounded text-xs font-mono text-red-800 overflow-auto max-h-32">
+                {this.state.error?.message}
+              </div>
+              <Button 
+                onClick={() => window.location.reload()} 
+                className="w-full bg-red-600 hover:bg-red-700"
+              >
+                Muat Ulang Halaman
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
   const [isAdminView, setIsAdminView] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [adminLoginData, setAdminLoginData] = useState({ username: "", password: "" });
@@ -69,90 +133,76 @@ export default function App() {
   const [tokenError, setTokenError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [dbError, setDbError] = useState<string | null>(null);
   const [isAddMajorDialogOpen, setIsAddMajorDialogOpen] = useState(false);
   const [newMajorName, setNewMajorName] = useState("");
 
-  // Majors Data
   const [majors, setMajors] = useState<Major[]>([]);
-
-  // Exams Data
   const [exams, setExams] = useState<Exam[]>([]);
-
-  // Global Exam Settings
   const [examSettings, setExamSettings] = useState({
     title: "Ujian Sekolah Utama 2026",
     status: "Aktif",
     schoolName: "SMK Negeri Digital"
   });
 
+  const [editingMajor, setEditingMajor] = useState<Major | null>(null);
+  const [editingExam, setEditingExam] = useState<Exam | null>(null);
+
   // Fetch data from Supabase
   React.useEffect(() => {
+    if (!isSupabaseConfigured()) {
+      setIsLoading(false);
+      return;
+    }
+
     const fetchData = async () => {
-      try {
-        setIsInitialLoading(true);
-        setDbError(null);
-        
-        // Fetch Majors
-        const { data: majorsData, error: majorsError } = await supabase
-          .from('majors')
-          .select('*');
-        
-        if (majorsError) throw majorsError;
-        if (majorsData && majorsData.length > 0) {
-          setMajors(majorsData);
-        } else {
-          const initialMajors = [
-            { id: "tkj", name: "Teknik Komputer & Jaringan" },
-            { id: "rpl", name: "Rekayasa Perangkat Lunak" },
-            { id: "akl", name: "Akuntansi" },
-            { id: "otkp", name: "Perkantoran" },
-          ];
-          setMajors(initialMajors);
-        }
-
-        // Fetch Exams
-        const { data: examsData, error: examsError } = await supabase
-          .from('exams')
-          .select('*');
-        
-        if (examsError) throw examsError;
-        if (examsData && examsData.length > 0) {
-          setExams(examsData);
-        } else {
-          const initialExams = [
-            { id: "tkj-1", subject: "Dasar Desain Grafis", link: "https://forms.google.com", token: "DDG2026", duration: "90", enrolledMajorIds: ["tkj"] },
-            { id: "tkj-2", subject: "Administrasi Sistem Jaringan", link: "https://forms.google.com", token: "ASJ2026", duration: "120", enrolledMajorIds: ["tkj"] },
-            { id: "rpl-1", subject: "Pemrograman Berorientasi Objek", link: "https://forms.google.com", token: "PBO2026", duration: "120", enrolledMajorIds: ["rpl"] },
-            { id: "rpl-2", subject: "Basis Data", link: "https://forms.google.com", token: "BD2026", duration: "90", enrolledMajorIds: ["rpl"] }
-          ];
-          setExams(initialExams);
-        }
-
-        // Fetch Settings
-        const { data: settingsData, error: settingsError } = await supabase
-          .from('settings')
-          .select('*')
-          .single();
-        
-        if (settingsError && settingsError.code !== 'PGRST116') throw settingsError;
-        if (settingsData) {
-          setExamSettings(settingsData);
-        }
-      } catch (error: any) {
-        console.error('Error fetching data from Supabase:', error);
-        setDbError(error.message || 'Gagal terhubung ke database. Pastikan tabel sudah dibuat di Supabase.');
-      } finally {
-        setIsInitialLoading(false);
+      setIsLoading(true);
+      
+      // Fetch Majors
+      const { data: majorsData, error: majorsError } = await supabase
+        .from('majors')
+        .select('*');
+      
+      if (!majorsError && majorsData) {
+        setMajors(majorsData);
       }
+
+      // Fetch Exams
+      const { data: examsData, error: examsError } = await supabase
+        .from('exams')
+        .select('*');
+      
+      if (!examsError && examsData) {
+        // Map snake_case to camelCase
+        const mappedExams = examsData.map((ex: any) => ({
+          id: ex.id,
+          subject: ex.subject,
+          link: ex.link,
+          token: ex.token,
+          duration: ex.duration,
+          enrolledMajorIds: ex.enrolled_major_ids || []
+        }));
+        setExams(mappedExams);
+      }
+
+      // Fetch Settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('settings')
+        .select('*')
+        .single();
+      
+      if (!settingsError && settingsData) {
+        setExamSettings({
+          title: settingsData.title,
+          status: settingsData.status,
+          schoolName: settingsData.school_name
+        });
+      }
+
+      setIsLoading(false);
     };
 
     fetchData();
   }, []);
-
-  const [editingMajor, setEditingMajor] = useState<Major | null>(null);
-  const [editingExam, setEditingExam] = useState<Exam | null>(null);
 
   const handleStartExam = () => {
     if (!selectedExam) return;
@@ -173,21 +223,26 @@ export default function App() {
     if (!editingExam) return;
 
     setIsLoading(true);
-    try {
-      const { error } = await supabase
-        .from('exams')
-        .upsert(editingExam);
-      
-      if (error) throw error;
+    
+    const { error } = await supabase
+      .from('exams')
+      .upsert({
+        id: editingExam.id,
+        subject: editingExam.subject,
+        link: editingExam.link,
+        token: editingExam.token,
+        duration: editingExam.duration,
+        enrolled_major_ids: editingExam.enrolledMajorIds
+      });
 
+    if (!error) {
       setExams(prev => prev.map(ex => ex.id === editingExam.id ? editingExam : ex));
       setIsSaved(true);
       setTimeout(() => setIsSaved(false), 3000);
-    } catch (error) {
-      console.error('Error saving exam to Supabase:', error);
-    } finally {
-      setIsLoading(false);
+    } else {
+      console.error("Error saving exam:", error);
     }
+    setIsLoading(false);
   };
 
   const handleAddMajor = () => {
@@ -197,37 +252,36 @@ export default function App() {
 
   const confirmAddMajor = async () => {
     if (!newMajorName.trim()) return;
-    const newId = `new-${Date.now()}`;
+    const newId = `major-${Date.now()}`;
     const newMajor: Major = {
       id: newId,
       name: newMajorName
     };
 
-    try {
-      const { error } = await supabase
-        .from('majors')
-        .insert(newMajor);
-      
-      if (error) throw error;
+    setIsLoading(true);
+    const { error } = await supabase
+      .from('majors')
+      .insert([newMajor]);
 
+    if (!error) {
       setMajors([...majors, newMajor]);
       setEditingMajor(newMajor);
       setIsAddMajorDialogOpen(false);
-    } catch (error) {
-      console.error('Error adding major to Supabase:', error);
+    } else {
+      console.error("Error adding major:", error);
     }
+    setIsLoading(false);
   };
 
   const handleDeleteMajor = async (id: string) => {
     if (confirm("Apakah Anda yakin ingin menghapus jurusan ini?")) {
-      try {
-        const { error: majorError } = await supabase
-          .from('majors')
-          .delete()
-          .eq('id', id);
-        
-        if (majorError) throw majorError;
+      setIsLoading(true);
+      const { error } = await supabase
+        .from('majors')
+        .delete()
+        .eq('id', id);
 
+      if (!error) {
         setMajors(majors.filter(m => m.id !== id));
         
         // Update local exams state
@@ -237,26 +291,28 @@ export default function App() {
         }));
         setExams(updatedExams);
 
-        // Update exams in Supabase (remove major from enrollment)
-        for (const exam of exams) {
-          if (exam.enrolledMajorIds.includes(id)) {
-            await supabase
-              .from('exams')
-              .update({ enrolledMajorIds: exam.enrolledMajorIds.filter(mId => mId !== id) })
-              .eq('id', exam.id);
-          }
+        // Update exams in Supabase (remove the major ID from all exams)
+        // This is a bit complex for a single call, so we'll just update the ones that were affected
+        const affectedExams = exams.filter(ex => ex.enrolledMajorIds.includes(id));
+        for (const ex of affectedExams) {
+          await supabase
+            .from('exams')
+            .update({ enrolled_major_ids: ex.enrolledMajorIds.filter(mId => mId !== id) })
+            .eq('id', ex.id);
         }
 
         if (editingMajor?.id === id) setEditingMajor(null);
-      } catch (error) {
-        console.error('Error deleting major from Supabase:', error);
+      } else {
+        console.error("Error deleting major:", error);
       }
+      setIsLoading(false);
     }
   };
 
   const handleAddExam = async () => {
+    const newId = `exam-${Date.now()}`;
     const newExam: Exam = {
-      id: `exam-${Date.now()}`,
+      id: newId,
       subject: "Mata Pelajaran Baru",
       link: "https://forms.google.com",
       token: "TOKEN123",
@@ -264,35 +320,42 @@ export default function App() {
       enrolledMajorIds: editingMajor ? [editingMajor.id] : []
     };
 
-    try {
-      const { error } = await supabase
-        .from('exams')
-        .insert(newExam);
-      
-      if (error) throw error;
+    setIsLoading(true);
+    const { error } = await supabase
+      .from('exams')
+      .insert([{
+        id: newExam.id,
+        subject: newExam.subject,
+        link: newExam.link,
+        token: newExam.token,
+        duration: newExam.duration,
+        enrolled_major_ids: newExam.enrolledMajorIds
+      }]);
 
+    if (!error) {
       setExams([...exams, newExam]);
       setEditingExam(newExam);
-    } catch (error) {
-      console.error('Error adding exam to Supabase:', error);
+    } else {
+      console.error("Error adding exam:", error);
     }
+    setIsLoading(false);
   };
 
   const handleDeleteExam = async (examId: string) => {
     if (confirm("Hapus mata ujian ini?")) {
-      try {
-        const { error } = await supabase
-          .from('exams')
-          .delete()
-          .eq('id', examId);
-        
-        if (error) throw error;
+      setIsLoading(true);
+      const { error } = await supabase
+        .from('exams')
+        .delete()
+        .eq('id', examId);
 
+      if (!error) {
         setExams(exams.filter(e => e.id !== examId));
         if (editingExam?.id === examId) setEditingExam(null);
-      } catch (error) {
-        console.error('Error deleting exam from Supabase:', error);
+      } else {
+        console.error("Error deleting exam:", error);
       }
+      setIsLoading(false);
     }
   };
 
@@ -307,6 +370,26 @@ export default function App() {
     setEditingExam({ ...editingExam, enrolledMajorIds: newEnrolledIds });
   };
 
+  const handleSaveSettings = async () => {
+    setIsLoading(true);
+    const { error } = await supabase
+      .from('settings')
+      .upsert({
+        id: 'global', // Use a fixed ID for global settings
+        title: examSettings.title,
+        status: examSettings.status,
+        school_name: examSettings.schoolName
+      });
+
+    if (!error) {
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2000);
+    } else {
+      console.error("Error saving settings:", error);
+    }
+    setIsLoading(false);
+  };
+
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (adminLoginData.username === "admin" && adminLoginData.password === "admin") {
@@ -316,6 +399,72 @@ export default function App() {
       setAdminLoginError(true);
     }
   };
+
+  if (!isSupabaseConfigured()) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 font-sans">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-lg"
+        >
+          <Card className="border-t-4 border-t-blue-600 shadow-2xl">
+            <CardHeader className="text-center">
+              <div className="mx-auto bg-blue-100 w-20 h-20 rounded-full flex items-center justify-center mb-4">
+                <Settings className="w-10 h-10 text-blue-600" />
+              </div>
+              <CardTitle className="text-3xl font-bold text-slate-900">Konfigurasi Diperlukan</CardTitle>
+              <CardDescription className="text-lg">Supabase belum dikonfigurasi dengan benar.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="bg-slate-100 p-6 rounded-xl space-y-4">
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  Aplikasi ini memerlukan koneksi ke Supabase untuk menyimpan data. Silakan ikuti langkah berikut:
+                </p>
+                <ol className="list-decimal list-inside text-sm text-slate-700 space-y-2 font-medium">
+                  <li>Buka menu <strong>Settings</strong> di AI Studio.</li>
+                  <li>Tambahkan variabel lingkungan berikut:</li>
+                  <ul className="list-disc list-inside pl-6 font-mono text-blue-700 mt-1">
+                    <li>VITE_SUPABASE_URL</li>
+                    <li>VITE_SUPABASE_ANON_KEY</li>
+                  </ul>
+                  <li>Masukkan URL dan API Key dari dashboard Supabase Anda.</li>
+                  <li>Simpan dan muat ulang aplikasi.</li>
+                </ol>
+              </div>
+              
+              <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-lg">
+                <Info className="w-5 h-5 text-amber-600 shrink-0" />
+                <p className="text-xs text-amber-800">
+                  Pastikan Anda juga sudah menjalankan script SQL yang saya berikan sebelumnya di SQL Editor Supabase.
+                </p>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button 
+                variant="outline" 
+                className="w-full h-12 text-slate-600"
+                onClick={() => window.location.reload()}
+              >
+                Sudah Konfigurasi? Muat Ulang
+              </Button>
+            </CardFooter>
+          </Card>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (isLoading && majors.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-500 font-medium animate-pulse">Memuat data sistem...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (isAdminView) {
     if (!isAdminAuthenticated) {
@@ -674,23 +823,7 @@ export default function App() {
                           </select>
                         </div>
                       </div>
-                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={async () => {
-                        setIsLoading(true);
-                        try {
-                          const { error } = await supabase
-                            .from('settings')
-                            .upsert({ id: 'global', ...examSettings });
-                          
-                          if (error) throw error;
-
-                          setIsSaved(true);
-                          setTimeout(() => setIsSaved(false), 2000);
-                        } catch (error) {
-                          console.error('Error saving settings to Supabase:', error);
-                        } finally {
-                          setIsLoading(false);
-                        }
-                      }}>
+                      <Button className="w-full bg-slate-800 hover:bg-slate-900 gap-2" onClick={handleSaveSettings}>
                         {isSaved ? "Pengaturan Disimpan!" : "Update Pengaturan Global"}
                       </Button>
                     </CardContent>
@@ -733,35 +866,6 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-grow flex items-center justify-center p-4 relative overflow-hidden">
-        {isInitialLoading && (
-          <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-[100] flex items-center justify-center">
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-              <p className="text-blue-600 font-bold animate-pulse">Memuat Data Sistem...</p>
-            </div>
-          </div>
-        )}
-
-        {dbError && (
-          <div className="fixed bottom-4 right-4 z-[100] max-w-md">
-            <Card className="border-red-200 bg-red-50 shadow-lg">
-              <CardHeader className="py-3">
-                <div className="flex items-center gap-2 text-red-600">
-                  <AlertCircle className="w-5 h-5" />
-                  <CardTitle className="text-sm">Database Error</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent className="py-2">
-                <p className="text-xs text-red-500 font-mono break-all">{dbError}</p>
-              </CardContent>
-              <CardFooter className="py-2">
-                <Button variant="outline" size="sm" className="w-full text-xs h-8" onClick={() => window.location.reload()}>
-                  Coba Lagi
-                </Button>
-              </CardFooter>
-            </Card>
-          </div>
-        )}
         {/* Background Decoration */}
         <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none">
           <div className="absolute top-10 left-10 w-64 h-64 bg-blue-500 rounded-full blur-3xl" />
