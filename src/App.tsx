@@ -82,7 +82,7 @@ export default function App() {
   const [examSettings, setExamSettings] = useState({
     title: "Ujian Sekolah Utama 2026",
     status: "Aktif",
-    schoolName: "SMK Negeri Digital"
+    schoolName: "SMK Muhammadiyah Kalibawang"
   });
 
   // Fetch Data from Supabase
@@ -386,8 +386,13 @@ export default function App() {
           >
             <Card className="border-t-4 border-t-blue-600 shadow-2xl">
               <CardHeader className="text-center">
-                <div className="mx-auto bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mb-2">
-                  <Lock className="w-8 h-8 text-blue-600" />
+                <div className="mx-auto bg-white w-20 h-20 rounded-full flex items-center justify-center mb-2 shadow-sm border overflow-hidden">
+                  <img 
+                    src="https://i.ibb.co.com/6qLmkc6/logo.png" 
+                    alt="Logo SMK" 
+                    className="w-full h-full object-contain p-2"
+                    referrerPolicy="no-referrer"
+                  />
                 </div>
                 <CardTitle className="text-2xl">Admin Login</CardTitle>
                 <CardDescription>Masukkan kredensial untuk akses panel</CardDescription>
@@ -791,8 +796,13 @@ export default function App() {
       <header className="bg-[#0056b3] text-white shadow-md">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-white p-1 rounded-full text-[#0056b3]">
-              <ShieldCheck className="w-8 h-8" />
+            <div className="bg-white p-1 rounded-full overflow-hidden flex items-center justify-center w-12 h-12">
+              <img 
+                src="https://i.ibb.co.com/6qLmkc6/logo.png" 
+                alt="Logo SMK" 
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <h1 className="text-xl font-bold leading-tight uppercase tracking-tight">{examSettings.schoolName}</h1>
@@ -992,22 +1002,13 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 py-6">
+      <footer className="bg-white border-t border-gray-200 py-8">
         <div className="container mx-auto px-4 text-center">
-          <div className="flex flex-col md:flex-row items-center justify-center gap-4 mb-4">
-            <img 
-              src="https://upload.wikimedia.org/wikipedia/commons/thumb/9/9c/Logo_of_Ministry_of_Education_and_Culture_of_Republic_of_Indonesia.svg/1200px-Logo_of_Ministry_of_Education_and_Culture_of_Republic_of_Indonesia.svg.png" 
-              alt="Kemendikbudristek" 
-              className="h-12 w-auto grayscale opacity-70"
-              referrerPolicy="no-referrer"
-            />
-            <div className="text-left hidden md:block border-l border-gray-300 pl-4">
-              <p className="text-xs font-bold text-gray-600 uppercase">Portal Ujian Sekolah Digital</p>
-              <p className="text-[10px] text-gray-500 uppercase">Dinas Pendidikan dan Kebudayaan</p>
-            </div>
+          <div className="mb-4">
+            <p className="text-sm font-bold text-gray-600 uppercase tracking-wider">Portal Ujian SMK Muhammadiyah Kalibawang</p>
           </div>
           <p className="text-xs text-gray-400">
-            &copy; 2026 Kementerian Pendidikan, Kebudayaan, Riset, dan Teknologi. Seluruh Hak Cipta Dilindungi.
+            &copy; 2026 SMK Muhammadiyah Kalibawang. Seluruh Hak Cipta Dilindungi.
           </p>
           <p className="text-[10px] text-gray-300 mt-1">Version 2.4.0-release</p>
         </div>
