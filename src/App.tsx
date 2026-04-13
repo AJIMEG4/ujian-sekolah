@@ -176,8 +176,17 @@ export default function App() {
     if (inputToken.toUpperCase() === selectedExam.token.toUpperCase()) {
       setIsLoading(true);
       setTokenError(false);
+      
+      // Safety timeout to reset loading state if redirect fails
+      const safetyTimeout = setTimeout(() => {
+        setIsLoading(false);
+      }, 5000);
+
       setTimeout(() => {
         window.location.href = selectedExam.link;
+        // In case window.location.href doesn't trigger immediately
+        clearTimeout(safetyTimeout);
+        setIsLoading(false);
       }, 1000);
     } else {
       setTokenError(true);
