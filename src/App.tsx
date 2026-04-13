@@ -410,6 +410,7 @@ export default function App() {
                         value={adminLoginData.username}
                         onChange={e => setAdminLoginData({...adminLoginData, username: e.target.value})}
                         required
+                        autoComplete="username"
                       />
                     </div>
                   </div>
@@ -425,6 +426,7 @@ export default function App() {
                         value={adminLoginData.password}
                         onChange={e => setAdminLoginData({...adminLoginData, password: e.target.value})}
                         required
+                        autoComplete="current-password"
                       />
                     </div>
                   </div>
